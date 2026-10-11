@@ -3,6 +3,13 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.5.0
+- Beim Anlegen entsteht nach den Ideen gleich das erste Redesign (Button "Ideen und Redesign erzeugen")
+- Das Redesign richtet sich nach dem Budget: Mit Budget wird das Konzept genommen, das es am besten ausnutzt, ohne es zu überschreiten. Ohne Budget gilt das mittlere Konzept mit mittlerem Preisniveau, nicht billig und nicht Luxus
+- Ohne Budget staffelt Claude die Konzepte jetzt: sparsam, ausgewogen (mittlere Preisklasse), hochwertig
+- Das gewählte Konzept ist mit "Empfohlen" markiert und beim Öffnen des Projekts schon für weitere Redesigns vorausgewählt
+- Die Bildanweisung nennt das Preisniveau (Budget oder "mittlere Qualität")
+
 ## 1.4.0
 - Budget: Wenn ein Budget angegeben ist, plant Claude die Konzepte um dieses Budget (Summe der Möbel höchstens so hoch wie das Budget, drei Stufen von sparsam bis voll genutzt). Ohne Budget bleibt alles wie bisher
 - Möbelpreise sind jetzt Preisrahmen (von bis). Pro Konzept zeigt die App die Summe und ob sie im Budget liegt

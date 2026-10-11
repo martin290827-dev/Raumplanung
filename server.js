@@ -132,6 +132,7 @@ function briefText(meta, lang) {
   if (meta.problems) t += `${L.prob}: ${meta.problems}\n`;
   if (meta.wishes) t += `${L.wish}: ${meta.wishes}\n`;
   if (meta.budget) { const n = parseBudget(meta.budget); t += `${L.budget}: ${meta.budget}${n > 0 ? ` (Obergrenze ${n} EUR)` : ''}\n`; }
+  if (lang !== 'de' && !(parseBudget(meta.budget) > 0)) t += 'Budget: not given. Assume a mid-range budget: solid mid-priced furniture, neither cheap nor luxury.\n';
   if (style) t += `${L.style}: ${lang === 'de' ? style.name : style.prompt}.\n`; else if (L.open) t += L.open + '\n';
   return t;
 }
@@ -177,7 +178,8 @@ BUDGET-MODUS: Der Nutzer hat ein Budget von ${n} EUR genannt. Plane ALLE drei Ko
 - Setze das Geld dort ein, wo es das genannte Problem am stärksten löst. Bei knappem Budget: einfache, gebrauchte oder selbstgebaute Lösungen.
 - Reicht das Budget nicht für alle Wünsche, sage das ehrlich im Feld "hinweis" und nenne, was du weglässt oder später empfiehlst.`;
 }
-const ideasSystem = (meta) => IDEAS_SYSTEM + (parseBudget(meta.budget) > 0 ? '\n' + budgetRules(parseBudget(meta.budget)) : '\nKein Budget genannt: Keine Obergrenze. Schätze realistische Gesamtkosten je Konzept.');
+const NO_BUDGET_RULES = `KEIN BUDGET genannt: Keine Obergrenze. Staffle die Konzepte nach Preisniveau: (1) sparsam und schnell, (2) AUSGEWOGEN mit mittlerem Preisniveau (solide Möbel der mittleren Preisklasse, weder billig noch Luxus; dieses Konzept wird zuerst als Redesign umgesetzt), (3) hochwertig und mutig. Schätze realistische Gesamtkosten je Konzept.`;
+const ideasSystem = (meta) => IDEAS_SYSTEM + (parseBudget(meta.budget) > 0 ? '\n' + budgetRules(parseBudget(meta.budget)) : '\n' + NO_BUDGET_RULES);
 
 async function callClaudeText(system, photo, userText, maxTokens = 6000) {
   if (!cfg.claudeKey) throw httpErr(400, 'Der Claude-Schlüssel fehlt. Bitte unter Einstellungen eintragen.');
@@ -235,6 +237,8 @@ function buildRedesignPrompt(style, meta, concept, o = {}) {
   if (meta.description) p += ` The owner wrote (German): "${meta.description}".`;
   if (meta.problems) p += ` Problems the owner wants solved (German): "${meta.problems}".`;
   if (meta.wishes) p += ` The owner's wishes, which must be clearly visible in the result (German): "${meta.wishes}".`;
+  const bud = parseBudget(meta.budget);
+  p += bud > 0 ? ` Furniture and finishes must look realistic for a total budget of about ${bud} EUR.` : ' Furniture and finishes: solid mid-range quality, neither cheap-looking nor luxury.';
   if (o.wishes) p += ` Extra instruction for this image: "${o.wishes}".`;
   if (concept) {
     const farben = (concept.farben || []).map((f) => f.name).filter(Boolean).join(', ');

@@ -8,6 +8,21 @@ function parseBudget(str) {
   const nums = m.map((x) => parseFloat(x.replace(/[.\u2009 ]/g, '').replace(',', '.'))).filter((n) => isFinite(n));
   return nums.length ? Math.max(...nums) : 0;
 }
+// Konzept fürs erste Redesign: mit Budget das, das es am besten ausnutzt (und nicht übersteigt), sonst das mittlere.
+function recommendedConcept(meta, concepts) {
+  if (!concepts || !concepts.length) return -1;
+  const bud = parseBudget(meta && meta.budget);
+  if (bud > 0) {
+    let best = -1, bestHi = -1, lowest = 0, lowestHi = Infinity;
+    concepts.forEach((c, i) => {
+      const s = conceptSum(c); if (!s) return;
+      if (s.hi <= bud && s.hi > bestHi) { best = i; bestHi = s.hi; }
+      if (s.hi < lowestHi) { lowest = i; lowestHi = s.hi; }
+    });
+    return best >= 0 ? best : lowest;
+  }
+  return concepts.length >= 3 ? 1 : Math.floor((concepts.length - 1) / 2);
+}
 function conceptSum(c) {
   let lo = 0, hi = 0, ok = false;
   for (const m of c.moebel || []) {
@@ -141,9 +156,9 @@ function showNew() {
         <label class="f">Budget (optional)<input id="budget" placeholder="z. B. 1500 EUR"></label>
         <label class="f">Stil (optional)<select id="nstyle"><option value="">Offen (Claude wählt)</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>
       </div>
-      <button class="btn primary" id="create" type="button" disabled>Ideen von Claude holen</button>
+      <button class="btn primary" id="create" type="button" disabled>Ideen und Redesign erzeugen</button>
       <button class="btn" id="createOnly" type="button" disabled>Nur anlegen, ohne Ideen</button>
-      <p class="hint">Claude bekommt Foto und alle Angaben und liefert sofort Ideen (etwa 0,05 USD, Schätzung). Alles lässt sich später ändern.</p>
+      <p class="hint">Claude bekommt Foto und alle Angaben, liefert sofort Ideen und daraus entsteht gleich das erste Redesign. Mit Budget richtet es sich danach, ohne Budget nimmt es mittlere Ausgaben. Kosten zusammen etwa 0,10 bis 0,15 USD (Schätzung). Alles lässt sich später ändern.</p>
       <p class="hint" id="newErr"></p>
     </div>
   </section>`;
@@ -174,12 +189,27 @@ function showNew() {
         problems: $('#prob').value, wishes: $('#wish').value, budget: $('#budget').value, style: $('#nstyle').value,
       });
       await refreshProjects();
-      if (withIdeas) { try { await api('POST', `/api/projects/${meta.id}/ideas`, {}); await refreshConfig(); } catch (e) { ideaErr = e.message; } }
+      let ideas = null;
+      if (withIdeas) { try { ideas = await api('POST', `/api/projects/${meta.id}/ideas`, {}); await refreshConfig(); } catch (e) { ideaErr = e.message; } }
+      let rdErr = '';
+      const cs = (ideas && ideas.result && ideas.result.konzepte) || [];
+      const ci = recommendedConcept(meta, cs);
+      if (ci >= 0) {
+        b1.textContent = 'Redesign wird erzeugt';
+        try {
+          const sid = meta.style || store('style') || cfg.styles[0].id;
+          let mid = store('model') || cfg.models[0].id; if (!cfg.models.some((m) => m.id === mid)) mid = cfg.models[0].id;
+          await api('POST', `/api/projects/${meta.id}/redesign`, { styleId: sid, modelId: mid, count: 1, conceptIndex: String(ci), wishes: '', keep: true, furnitureIdx: (cs[ci].moebel || []).map((_, i) => i), customPrompt: '' });
+          await refreshConfig();
+        } catch (e) { rdErr = e.message; }
+      }
+      await refreshProjects();
       await openProject(meta.id);
       if (ideaErr) toast('Projekt angelegt, aber die Ideen fehlen: ' + ideaErr, true);
+      else if (rdErr) toast('Ideen sind da, aber das Redesign fehlt: ' + rdErr, true);
     } catch (e) {
       $('#newErr').textContent = e.message; $('#newErr').className = 'err';
-      b1.disabled = b2.disabled = false; b1.textContent = 'Ideen von Claude holen'; main.classList.remove('busy');
+      b1.disabled = b2.disabled = false; b1.textContent = 'Ideen und Redesign erzeugen'; main.classList.remove('busy');
     }
   };
   $('#create').addEventListener('click', () => create(true));
@@ -198,8 +228,11 @@ async function openProject(id) {
   ui.styleId = cur.style || store('style') || cfg.styles[0].id;
   ui.modelId = ui.modelId || store('model') || cfg.models[0].id;
   if (!cfg.models.some((m) => m.id === ui.modelId)) ui.modelId = cfg.models[0].id;
-  ui.concept = '';
-  ui.wishes = ''; ui.customPrompt = ''; ui.keep = true; ui.furn = new Set();
+  ui.wishes = ''; ui.customPrompt = ''; ui.keep = true;
+  const cs0 = (cur.ideas && cur.ideas.result && cur.ideas.result.konzepte) || [];
+  const rc = recommendedConcept(cur, cs0);
+  ui.concept = rc >= 0 ? String(rc) : '';
+  ui.furn = new Set(rc >= 0 ? (cs0[rc].moebel || []).map((_, i) => i) : []);
   renderRail(); renderProject();
 }
 const fileUrl = (name) => `/files/${encodeURIComponent(cur.id)}/${encodeURIComponent(name)}`;
@@ -341,7 +374,9 @@ async function doIdeas() {
   const btn = $('#ideasBtn'); btn.disabled = true; btn.classList.add('busy'); $('#ideasErr').textContent = '';
   try {
     cur.ideas = await api('POST', `/api/projects/${cur.id}/ideas`, {});
-    ui.concept = ''; ui.furn = new Set();
+    const cs1 = (cur.ideas.result && cur.ideas.result.konzepte) || [];
+    const rc1 = recommendedConcept(cur, cs1);
+    ui.concept = rc1 >= 0 ? String(rc1) : ''; ui.furn = new Set(rc1 >= 0 ? (cs1[rc1].moebel || []).map((_, i) => i) : []);
     await refreshConfig(); renderProject(); toast('Ideen gespeichert');
   } catch (e) { $('#ideasErr').textContent = e.message; btn.disabled = false; btn.classList.remove('busy'); refreshConfig(); }
 }
@@ -415,7 +450,7 @@ function ideasHTML(r) {
   ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>` : ''}
   <div class="concepts">${(r.konzepte || []).map((c, i) => `
     <details class="cc" ${i === 0 ? 'open' : ''}>
-      <summary><span class="ct">${esc(c.titel)}</span><span class="cm">Aufwand ${esc(c.aufwand)}, ${esc(c.budget_eur)} EUR</span>
+      <summary><span class="ct">${esc(c.titel)}</span>${i === recommendedConcept(cur, (r.konzepte || [])) ? '<span class="rec">Empfohlen</span>' : ''}<span class="cm">Aufwand ${esc(c.aufwand)}, ${esc(c.budget_eur)} EUR</span>
         <span class="sws">${(c.farben || []).map((f) => `<i title="${esc(f.name)}" style="background:${hexOk(f.hex) ? esc(f.hex) : 'transparent'}"></i>`).join('')}</span></summary>
       <div class="cb">
         <p>${esc(c.idee)}</p>
