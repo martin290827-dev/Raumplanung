@@ -3,6 +3,11 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.8.0
+- Der Stil wird jetzt direkt im Bereich "Ideen von Claude" gewählt (Stilvorlagen oder "Offen"). Die Auswahl wird im Projekt gespeichert, Claude erzeugt die Ideen auf dieser Basis, und derselbe Stil gilt für das Redesign
+- Im Redesign-Bereich gibt es keine zweite Stilauswahl mehr, nur noch eine Zeile mit dem gewählten Stil. Das vermeidet doppelte Eingaben
+- Ändert man den Stil nach den Ideen, erscheint der Hinweis "Ideen neu erzeugen"
+
 ## 1.7.2
 - "Vorhandene Möbel und Raumaufteilung beibehalten" steht jetzt schon im Formular "Neues Projekt" (standardmäßig an). Es gilt für die Ideen von Claude und für das erste Redesign
 - Die Einstellung wird im Projekt gespeichert, steht unter "Deine Angaben", ist dort änderbar und löst bei Änderung den Hinweis "Ideen neu erzeugen" aus

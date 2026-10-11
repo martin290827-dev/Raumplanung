@@ -285,8 +285,12 @@ function renderProject() {
 
   <section class="panel">
     <h3>Ideen von Claude</h3>
+    <div class="f" style="margin-bottom:6px"><span>Stil für die Ideen</span></div>
+    <div class="chips" id="ideaChips" role="group" aria-label="Stil"><button type="button" class="chip" data-s="" aria-pressed="${ui.styleId === ''}">Offen (nach Konzept)</button>${cfg.styles.map((s) => `
+      <button type="button" class="chip" data-s="${esc(s.id)}" aria-pressed="${ui.styleId === s.id}">
+        <span class="dots">${s.farben.map((c) => `<i style="background:${esc(c)}"></i>`).join('')}</span>${esc(s.name)}</button>`).join('')}</div>
     <div class="row"><button class="btn primary" id="ideasBtn" type="button">${cur.ideas ? 'Ideen neu erzeugen' : 'Ideen von Claude holen'}</button></div>
-    <p class="hint">Claude nutzt das Foto und deine Angaben oben: Beschreibung, was dich stört, Wünsche, Budget und Stil. Kosten etwa 0,05 USD. Maße sind Schätzungen vom Foto.</p>
+    <p class="hint">Claude nutzt das Foto, deinen Stil und deine Angaben oben: Beschreibung, was dich stört, Wünsche und Budget. Der Stil gilt auch für das Redesign. Kosten etwa 0,05 USD. Maße sind Schätzungen vom Foto.</p>
     <p class="hint" id="ideasWait"></p>
     <p class="err" id="ideasErr"></p>
     <div id="ideas">${cur.ideas ? ideasHTML(cur.ideas.result) : ''}</div>
@@ -294,10 +298,7 @@ function renderProject() {
 
   <section class="panel" id="redesignPanel">
     <h3>Redesign aus dem Foto</h3>
-    <div class="f" style="margin-bottom:6px"><span>Stil</span></div>
-    <div class="chips" role="group" aria-label="Stilvorlage"><button type="button" class="chip" data-s="" aria-pressed="${ui.styleId === ''}">Offen (nach Konzept)</button>${cfg.styles.map((s) => `
-      <button type="button" class="chip" data-s="${esc(s.id)}" aria-pressed="${ui.styleId === s.id}">
-        <span class="dots">${s.farben.map((c) => `<i style="background:${esc(c)}"></i>`).join('')}</span>${esc(s.name)}</button>`).join('')}</div>
+    <p class="hint" id="redStyle" style="margin:0 0 12px"></p>
     <label class="f">Konzept<select id="concept"><option value="">Kein Konzept, nur Stil</option>${concepts.map((c, i) => `<option value="${i}" ${String(i) === ui.concept ? 'selected' : ''}>${esc(c.titel)}${i === recommendedConcept(cur, concepts) ? ' (empfohlen)' : ''}</option>`).join('')}</select></label>
     <div id="furn" style="margin-top:12px"></div>
     <div id="own" class="own"></div>
@@ -326,10 +327,18 @@ function renderProject() {
   renderBrief(false);
   $('#rename').addEventListener('click', () => { renderBrief(true); $('#brief').scrollIntoView(); $('#bTitle').focus(); });
   $('#thumbs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { shown = b.dataset.f || null; renderProject(); }));
-  document.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', () => {
-    ui.styleId = b.dataset.s;
-    document.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  const showStyle = () => { const st = cfg.styles.find((x) => x.id === ui.styleId); const r = $('#redStyle'); if (r) r.innerHTML = `Stil: <b>${esc(st ? st.name : 'Offen, nach Konzept')}</b>. Er wird oben bei den Ideen gewählt und gilt auch hier.`; };
+  showStyle();
+  document.querySelectorAll('#ideaChips .chip').forEach((b) => b.addEventListener('click', async () => {
+    const id = b.dataset.s; if (id === (cur.style || '')) return;
+    document.querySelectorAll('#ideaChips .chip').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    ui.styleId = id; showStyle();
+    try {
+      const m = await api('PATCH', '/api/projects/' + cur.id, { style: id });
+      cur.style = m.style; cur.briefUpdatedAt = m.briefUpdatedAt; renderBrief(false);
+    } catch (e) { toast(e.message, true); }
   }));
+
   $('#model').addEventListener('change', (e) => { ui.modelId = e.target.value; store('model', ui.modelId); upd(); renderOwn(); });
   document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => {
     ui.count = +b.dataset.n; document.querySelectorAll('.seg button').forEach((x) => x.setAttribute('aria-checked', String(x === b))); upd();
@@ -515,7 +524,7 @@ function renderBrief(edit) {
         title: $('#bTitle').value, room: $('#bRoom').value, style: $('#bStyle').value, budget: $('#bBudget').value,
         description: $('#bDesc').value, problems: $('#bProb').value, wishes: $('#bWish').value, keep: $('#bKeep').checked,
       });
-      ui.keep = m.keep !== false; Object.assign(cur, { keep: m.keep, title: m.title, room: m.room, style: m.style, budget: m.budget, description: m.description, problems: m.problems, wishes: m.wishes, briefUpdatedAt: m.briefUpdatedAt });
+      ui.keep = m.keep !== false; ui.styleId = m.style || ''; Object.assign(cur, { keep: m.keep, title: m.title, room: m.room, style: m.style, budget: m.budget, description: m.description, problems: m.problems, wishes: m.wishes, briefUpdatedAt: m.briefUpdatedAt });
       await refreshProjects(); renderProject(); toast('Gespeichert');
     } catch (e) { $('#bErr').textContent = e.message; }
   });
