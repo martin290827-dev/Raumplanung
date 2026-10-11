@@ -131,7 +131,7 @@ function briefText(meta, lang) {
   let t = `${L.room}: ${meta.room}.\n${L.desc}: ${meta.description || L.none}\n`;
   if (meta.problems) t += `${L.prob}: ${meta.problems}\n`;
   if (meta.wishes) t += `${L.wish}: ${meta.wishes}\n`;
-  if (meta.budget) t += `${L.budget}: ${meta.budget}\n`;
+  if (meta.budget) { const n = parseBudget(meta.budget); t += `${L.budget}: ${meta.budget}${n > 0 ? ` (Obergrenze ${n} EUR)` : ''}\n`; }
   if (style) t += `${L.style}: ${lang === 'de' ? style.name : style.prompt}.\n`; else if (L.open) t += L.open + '\n';
   return t;
 }
@@ -143,7 +143,7 @@ const IDEAS_SYSTEM = `Du bist ein erfahrener Innenarchitekt und Raumplaner. Du s
 Antworte ausschließlich mit einem einzigen JSON-Objekt, ohne Text davor oder danach, auf Deutsch, in einfacher, klarer, KOMPAKTER Sprache.
 Regeln:
 - Alle Maße sind Schätzungen aus dem Foto. Nenne sie in cm. Wenn der Nutzer Maße nennt, haben diese Vorrang.
-- Erfinde keine Marken- oder Produktnamen mit Preisen. Gib einen guten deutschen Suchbegriff für den Möbelkauf an und einen groben Preisrahmen in EUR.
+- Erfinde keine Marken- oder Produktnamen mit Preisen. Gib einen guten deutschen Suchbegriff für den Möbelkauf an und einen realistischen Preisrahmen als Zahlen in EUR (preis_min_eur, preis_max_eur).
 - Die Angaben des Nutzers haben Vorrang: Beschreibung, was ihn stört, seine Wünsche, Budget und Stil. Jedes Konzept muss die genannten Probleme lösen und die Wünsche erfüllen. Sage im Feld "idee" kurz, wie. Nenne ein Budget, das zum Budget des Nutzers passt, falls er eins nennt.
 - Liefere 3 deutlich verschiedene Konzepte (zum Beispiel: sparsam und schnell, ausgewogen, mutig).
 - Fasse dich kurz: Das ist eine Übersicht, kein Aufsatz.
@@ -155,12 +155,29 @@ Schema:
   {"titel": "höchstens 4 Wörter", "idee": "höchstens 2 Sätze", "aufwand": "gering|mittel|hoch", "budget_eur": "z. B. 300-600",
    "farben": [{"name": "", "hex": "#RRGGBB"}],
    "materialien": ["höchstens 3"],
-   "moebel": [{"name": "", "masse_cm": "B x T x H", "platzierung": "ein kurzer Satz", "suchbegriff": "", "preis_eur": "z. B. 150-300"}]}
+   "moebel": [{"name": "", "masse_cm": "B x T x H", "platzierung": "ein kurzer Satz", "suchbegriff": "", "preis_min_eur": 150, "preis_max_eur": 300}]}
  ],
  "schnelle_erfolge": ["genau 3 Maßnahmen unter 50 EUR, je höchstens 8 Wörter"],
  "hinweis": "höchstens 1 Satz zu Unsicherheiten"
 }
 Pro Konzept höchstens 5 Möbelstücke und höchstens 3 Farben.`;
+
+// Größte Zahl aus einem Budget-Text, z. B. "1.500 EUR" -> 1500, "1500 bis 2000" -> 2000. 0 = kein Budget.
+function parseBudget(str) {
+  const m = String(str || '').match(/\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?/g);
+  if (!m) return 0;
+  return Math.max(...m.map((x) => parseFloat(x.replace(/\./g, '').replace(',', '.'))));
+}
+function budgetRules(n) {
+  return `
+BUDGET-MODUS: Der Nutzer hat ein Budget von ${n} EUR genannt. Plane ALLE drei Konzepte um dieses Budget herum:
+- Die Summe aller preis_max_eur der Möbel eines Konzepts darf ${n} EUR nicht überschreiten. Rechne nach, bevor du antwortest.
+- Staffle die Konzepte: (1) Kernlösung bei etwa 50 % des Budgets, (2) ausgewogen bei etwa 80 %, (3) nutzt das Budget fast voll aus. Keines darf darüber liegen.
+- budget_eur ist die geschätzte Gesamtsumme des Konzepts (Möbel plus Kleinteile) und muss unter ${n} liegen.
+- Setze das Geld dort ein, wo es das genannte Problem am stärksten löst. Bei knappem Budget: einfache, gebrauchte oder selbstgebaute Lösungen.
+- Reicht das Budget nicht für alle Wünsche, sage das ehrlich im Feld "hinweis" und nenne, was du weglässt oder später empfiehlst.`;
+}
+const ideasSystem = (meta) => IDEAS_SYSTEM + (parseBudget(meta.budget) > 0 ? '\n' + budgetRules(parseBudget(meta.budget)) : '\nKein Budget genannt: Keine Obergrenze. Schätze realistische Gesamtkosten je Konzept.');
 
 async function callClaudeText(system, photo, userText, maxTokens = 6000) {
   if (!cfg.claudeKey) throw httpErr(400, 'Der Claude-Schlüssel fehlt. Bitte unter Einstellungen eintragen.');
@@ -179,8 +196,8 @@ async function callClaudeText(system, photo, userText, maxTokens = 6000) {
   if (!r.ok) throw httpErr(502, 'Claude-API: ' + ((j.error && j.error.message) || r.status));
   return (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
 }
-async function callClaude(photo, userText) {
-  const text = await callClaudeText(IDEAS_SYSTEM, photo, userText);
+async function callClaude(photo, userText, system = IDEAS_SYSTEM) {
+  const text = await callClaudeText(system, photo, userText);
   const a = text.indexOf('{'), b = text.lastIndexOf('}');
   try { return JSON.parse(text.slice(a, b + 1)); }
   catch { throw httpErr(502, 'Claude hat kein gültiges JSON geliefert. Bitte noch einmal versuchen.'); }
@@ -407,7 +424,7 @@ async function handle(req, res) {
       const photo = { buf: fs.readFileSync(photoPath), mime: ext === 'jpg' ? 'image/jpeg' : 'image/' + ext };
       reserve(cfg.claudeCost);
       let result;
-      try { result = await callClaude(photo, briefText(meta, 'de')); } catch (e) { refund(cfg.claudeCost); throw e; }
+      try { result = await callClaude(photo, briefText(meta, 'de'), ideasSystem(meta)); } catch (e) { refund(cfg.claudeCost); throw e; }
       const ideas = { createdAt: new Date().toISOString(), styleId: meta.style || null, budget: meta.budget || '', result };
       fs.writeFileSync(path.join(projDir(id), 'ideas.json'), JSON.stringify(ideas, null, 2));
       return sendJson(res, 200, ideas);

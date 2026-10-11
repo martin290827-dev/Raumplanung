@@ -3,6 +3,12 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.4.0
+- Budget: Wenn ein Budget angegeben ist, plant Claude die Konzepte um dieses Budget (Summe der Möbel höchstens so hoch wie das Budget, drei Stufen von sparsam bis voll genutzt). Ohne Budget bleibt alles wie bisher
+- Möbelpreise sind jetzt Preisrahmen (von bis). Pro Konzept zeigt die App die Summe und ob sie im Budget liegt
+- Neues Design im Apple-Stil: SF-Schrift, runde weiße Karten, Pill-Buttons, durchscheinende Seitenleiste, segmentierte Auswahl, Schalter, Dunkelmodus
+- Kostenanzeige mit Balken in der Seitenleiste
+
 ## 1.3.0
 - Projektname ist änderbar (Button "Umbenennen" oder unter "Deine Angaben")
 - Neues Projekt fragt vorab: Beschreibung, was dich stört, Wünsche, Budget und Stil (optional). "Ideen von Claude holen" legt das Projekt an und liefert sofort die Ideen

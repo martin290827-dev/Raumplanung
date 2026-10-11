@@ -2,6 +2,20 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const hexOk = (h) => /^#[0-9a-f]{3,8}$/i.test(h || '');
+const eur = (n) => Math.round(n).toLocaleString('de-AT');
+function parseBudget(str) {
+  const m = String(str || '').match(/\d[\d.\u2009 ]*(?:,\d+)?/g); if (!m) return 0;
+  const nums = m.map((x) => parseFloat(x.replace(/[.\u2009 ]/g, '').replace(',', '.'))).filter((n) => isFinite(n));
+  return nums.length ? Math.max(...nums) : 0;
+}
+function conceptSum(c) {
+  let lo = 0, hi = 0, ok = false;
+  for (const m of c.moebel || []) {
+    const a = Number(m.preis_min_eur), b = Number(m.preis_max_eur);
+    if (isFinite(a) && isFinite(b) && (a || b)) { lo += a; hi += b; ok = true; }
+  }
+  return ok ? { lo, hi } : null;
+}
 const usd = (n) => n.toFixed(2).replace('.', ',') + ' USD';
 
 let cfg = null;
@@ -98,7 +112,8 @@ function renderStatus() {
   if (!cfg) return;
   const b = cfg.budget; const rest = Math.max(0, b.limit - b.used);
   const miss = [!cfg.claude.ok && 'Claude-Schlüssel', !cfg.atlas.ok && 'Atlas-Cloud-Schlüssel'].filter(Boolean);
-  $('#status').innerHTML = `Heute ${usd(b.used)} von ${usd(b.limit)}<br>Rest ${usd(rest)}` +
+  const pct = b.limit > 0 ? Math.min(100, Math.round((b.used / b.limit) * 100)) : 0;
+  $('#status').innerHTML = `<div class="meter" role="img" aria-label="Tageskosten ${pct} Prozent des Limits"><i style="width:${pct}%"></i></div>Heute ${usd(b.used)} von ${usd(b.limit)}<br>Rest ${usd(rest)}` +
     (miss.length ? `<br><span class="warn">Es fehlt: ${miss.map((m) => esc(m)).join(', ')}. <a href="#" id="toSettings">Einstellungen öffnen</a></span>` : '') +
     `<br>Version ${esc(cfg.version || '')}`;
   const a = $('#toSettings'); if (a) a.addEventListener('click', (e) => { e.preventDefault(); showSettings(); });
@@ -114,7 +129,7 @@ function showNew() {
     <h2>Neues Projekt</h2>
     <label class="drop" id="drop" tabindex="0">
       <input type="file" accept="image/*,.heic,.heif,.tif,.tiff,.avif,.bmp" hidden id="file">
-      <span id="dropText">Foto des Raums oder Platzes hierher ziehen, einfügen (Cmd+V) oder klicken<br><small>JPEG, PNG, HEIC (iPhone), WebP, TIFF und mehr</small></span>
+      <span id="dropText"><svg class="ico" viewBox="0 0 48 48" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="38" height="28" rx="6"/><circle cx="17" cy="21" r="3.5"/><path d="M5 34l11-9 8 7 7-6 12 9"/></svg><br>Foto des Raums oder Platzes hierher ziehen, einfügen (Cmd+V) oder klicken<br><small>JPEG, PNG, HEIC (iPhone), WebP, TIFF und mehr</small></span>
     </label>
     <div class="fields">
       <label class="f">Projektname<input id="title" maxlength="80" placeholder="z. B. Vorraum Graz"></label>
@@ -235,10 +250,10 @@ function renderProject() {
     <label class="f" style="margin-bottom:12px">Zusätzlich für dieses Bild (optional)
       <textarea id="wishes" rows="3" placeholder="Gilt nur für diese Bildrunde, z. B. Die Kommode mit den Bildern bleibt. Spiegel über dem Schuhregal.">${esc(ui.wishes)}</textarea>
     </label>
-    <label class="opt"><input type="checkbox" id="keep" ${ui.keep ? 'checked' : ''}> Vorhandene Möbel und Raumaufteilung beibehalten</label>
+    <label class="opt"><span>Vorhandene Möbel und Raumaufteilung beibehalten</span><span class="switch"><input type="checkbox" id="keep" ${ui.keep ? 'checked' : ''}><i></i></span></label>
     <div class="row">
       <label class="f">Modell<select id="model">${cfg.models.map((m) => `<option value="${esc(m.id)}" ${m.id === ui.modelId ? 'selected' : ''}>${esc(m.name)} (${m.preis.toFixed(3).replace('.', ',')} USD pro Bild)</option>`).join('')}</select></label>
-      <label class="f">Anzahl<select id="count">${[1, 2, 3].map((n) => `<option ${n === ui.count ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <div class="f"><span id="cntLbl">Anzahl</span><div class="seg" role="radiogroup" aria-labelledby="cntLbl">${[1, 2, 3].map((n) => `<button type="button" role="radio" data-n="${n}" aria-checked="${n === ui.count}">${n}</button>`).join('')}</div></div>
       <label class="f">Nach Konzept<select id="concept"><option value="">Nur Stilvorlage</option>${concepts.map((c, i) => `<option value="${i}" ${String(i) === ui.concept ? 'selected' : ''}>${esc(c.titel)}</option>`).join('')}</select></label>
     </div>
     <div id="furn" style="margin-top:14px"></div>
@@ -267,7 +282,9 @@ function renderProject() {
     document.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
   }));
   $('#model').addEventListener('change', (e) => { ui.modelId = e.target.value; store('model', ui.modelId); upd(); });
-  $('#count').addEventListener('change', (e) => { ui.count = +e.target.value; upd(); });
+  document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => {
+    ui.count = +b.dataset.n; document.querySelectorAll('.seg button').forEach((x) => x.setAttribute('aria-checked', String(x === b))); upd();
+  }));
   const furnReset = () => {
     const c = concepts[ui.concept === '' ? -1 : +ui.concept];
     ui.furn = new Set(c ? (c.moebel || []).map((_, i) => i) : []);
@@ -369,6 +386,21 @@ function renderBrief(edit) {
   });
 }
 
+function priceTxt(m) {
+  const a = Number(m.preis_min_eur), b = Number(m.preis_max_eur);
+  if (isFinite(a) && isFinite(b) && (a || b)) return a === b ? `ca. ${eur(a)} EUR` : `ca. ${eur(a)} bis ${eur(b)} EUR`;
+  return m.preis_eur ? `ca. ${esc(m.preis_eur)} EUR` : '';
+}
+function budgetLine(c) {
+  const s = conceptSum(c); if (!s) return '';
+  const bud = parseBudget(cur && cur.budget);
+  const range = s.lo === s.hi ? `${eur(s.hi)} EUR` : `${eur(s.lo)} bis ${eur(s.hi)} EUR`;
+  if (!bud) return `<p class="bline">Möbel gesamt: ${range}</p>`;
+  const over = s.hi - bud;
+  return over <= 0
+    ? `<p class="bline ok">Möbel gesamt: ${range} · im Budget (${eur(bud)} EUR)</p>`
+    : `<p class="bline over">Möbel gesamt: ${range} · über dem Budget um bis zu ${eur(over)} EUR (${eur(bud)} EUR)</p>`;
+}
 function list(a) { return (a || []).map((x) => `<li>${esc(x)}</li>`).join(''); }
 function ideasHTML(r) {
   if (!r) return '';
@@ -388,8 +420,9 @@ function ideasHTML(r) {
       <div class="cb">
         <p>${esc(c.idee)}</p>
         ${(c.materialien || []).length ? `<p class="mats">Material: ${esc(c.materialien.join(', '))}. Farben: ${esc((c.farben || []).map((f) => f.name).join(', '))}.</p>` : ''}
+        ${budgetLine(c)}
         <ul class="furn compact">${(c.moebel || []).map((m) => `
-          <li><b>${esc(m.name)}</b> <span class="mm">${esc(m.masse_cm)} cm, ca. ${esc(m.preis_eur)} EUR</span><br>
+          <li><b>${esc(m.name)}</b> <span class="mm">${esc(m.masse_cm)} cm, ${priceTxt(m)}</span><br>
           <span class="hint">${esc(m.platzierung)}</span> <a href="https://www.google.at/search?tbm=shop&q=${encodeURIComponent(m.suchbegriff || m.name)}" target="_blank" rel="noopener noreferrer">Suchen</a></li>`).join('')}</ul>
         <button class="btn small" type="button" data-pick="${i}">Dieses Konzept fürs Redesign wählen</button>
       </div>
