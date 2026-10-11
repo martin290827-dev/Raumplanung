@@ -3,6 +3,14 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.2.0
+- Projekte löschen: Kreuz in der Projektliste und Button im Projekt, mit eigener Rückfrage in der App (keine Browser-Dialoge mehr)
+- Einzelne Redesign-Bilder löschen
+- Ideen von Claude stehen jetzt vor dem Redesign und sind kompakt: Kurzfassung, Konzepte zum Auf- und Zuklappen, Möbel in zwei Zeilen
+- Button "Dieses Konzept fürs Redesign wählen" übernimmt Konzept und Möbel ins Redesign
+- Deine Beschreibung bleibt oben im Projekt sichtbar und lässt sich bearbeiten (inkl. Raumtyp); die App sagt, was in die Ideen einfließt
+- Claude antwortet kürzer (weniger Text, höchstens 5 Möbel pro Konzept)
+
 ## 1.1.0
 - Redesign mit eigenen Wünschen: Textfeld für Wünsche, die ins Bild einfließen
 - Möbel aus einem Claude-Konzept einzeln auswählen und im Bild einbauen lassen

@@ -123,26 +123,27 @@ function listProjects() {
 }
 
 // ---------- Claude: Ideen ----------
-const IDEAS_SYSTEM = `Du bist ein erfahrener Innenarchitekt und Raumplaner. Du siehst ein Foto eines Raums oder Platzes und bekommst eine kurze Beschreibung.
-Antworte ausschließlich mit einem einzigen JSON-Objekt, ohne Text davor oder danach, auf Deutsch, in einfacher, klarer Sprache.
+const IDEAS_SYSTEM = `Du bist ein erfahrener Innenarchitekt und Raumplaner. Du siehst ein Foto eines Raums oder Platzes und bekommst eine kurze Beschreibung des Nutzers. Berücksichtige die Beschreibung ausdrücklich.
+Antworte ausschließlich mit einem einzigen JSON-Objekt, ohne Text davor oder danach, auf Deutsch, in einfacher, klarer, KOMPAKTER Sprache.
 Regeln:
-- Alle Maße sind Schätzungen aus dem Foto. Nenne sie in cm und markiere Unsicherheit ehrlich im Feld "hinweis".
-- Wenn der Nutzer Maße nennt, haben diese Vorrang vor deinen Schätzungen.
-- Erfinde keine Marken- oder Produktnamen mit Preisen. Gib stattdessen einen guten deutschen Suchbegriff für den Möbelkauf an und einen groben Preisrahmen in EUR.
+- Alle Maße sind Schätzungen aus dem Foto. Nenne sie in cm. Wenn der Nutzer Maße nennt, haben diese Vorrang.
+- Erfinde keine Marken- oder Produktnamen mit Preisen. Gib einen guten deutschen Suchbegriff für den Möbelkauf an und einen groben Preisrahmen in EUR.
 - Liefere 3 deutlich verschiedene Konzepte (zum Beispiel: sparsam und schnell, ausgewogen, mutig).
+- Fasse dich kurz: Das ist eine Übersicht, kein Aufsatz.
 Schema:
 {
- "zusammenfassung": "2-3 Sätze: was du siehst und was am meisten bringt",
- "analyse": {"raumtyp": "", "licht": "", "probleme": ["..."], "potenzial": ["..."]},
+ "zusammenfassung": "höchstens 2 kurze Sätze: was du siehst und was am meisten bringt",
+ "analyse": {"raumtyp": "", "licht": "höchstens 10 Wörter", "probleme": ["höchstens 3 Stichpunkte, je höchstens 8 Wörter"], "potenzial": ["höchstens 3 Stichpunkte, je höchstens 8 Wörter"]},
  "konzepte": [
-  {"titel": "", "idee": "3-4 Sätze", "aufwand": "gering|mittel|hoch", "budget_eur": "z. B. 300-600",
+  {"titel": "höchstens 4 Wörter", "idee": "höchstens 2 Sätze", "aufwand": "gering|mittel|hoch", "budget_eur": "z. B. 300-600",
    "farben": [{"name": "", "hex": "#RRGGBB"}],
-   "materialien": ["..."],
-   "moebel": [{"name": "", "masse_cm": "B x T x H", "platzierung": "wo im Raum und warum", "suchbegriff": "", "preis_eur": "z. B. 150-300"}]}
+   "materialien": ["höchstens 3"],
+   "moebel": [{"name": "", "masse_cm": "B x T x H", "platzierung": "ein kurzer Satz", "suchbegriff": "", "preis_eur": "z. B. 150-300"}]}
  ],
- "schnelle_erfolge": ["3-5 Maßnahmen unter 50 EUR"],
- "hinweis": "Unsicherheiten, fehlende Angaben"
-}`;
+ "schnelle_erfolge": ["genau 3 Maßnahmen unter 50 EUR, je höchstens 8 Wörter"],
+ "hinweis": "höchstens 1 Satz zu Unsicherheiten"
+}
+Pro Konzept höchstens 5 Möbelstücke und höchstens 3 Farben.`;
 
 async function callClaudeText(system, photo, userText, maxTokens = 6000) {
   if (!cfg.claudeKey) throw httpErr(400, 'Der Claude-Schlüssel fehlt. Bitte unter Einstellungen eintragen.');
@@ -355,7 +356,16 @@ async function handle(req, res) {
     return sendJson(res, 201, meta);
   }
 
-  let m = p.match(/^\/api\/projects\/([a-z0-9-]+)(?:\/(ideas|redesign|prompt))?$/);
+  let m = p.match(/^\/api\/projects\/([a-z0-9-]+)\/redesign\/(redesign-[A-Za-z0-9._-]+)$/);
+  if (m && req.method === 'DELETE') {
+    const meta = readMeta(m[1]);
+    if (!(meta.redesigns || []).some((r) => r.file === m[2])) throw httpErr(404, 'Bild nicht gefunden.');
+    meta.redesigns = meta.redesigns.filter((r) => r.file !== m[2]);
+    writeMeta(m[1], meta);
+    fs.rmSync(path.join(projDir(m[1]), m[2]), { force: true });
+    return sendJson(res, 200, { ok: true });
+  }
+  m = p.match(/^\/api\/projects\/([a-z0-9-]+)(?:\/(ideas|redesign|prompt))?$/);
   if (m) {
     const id = m[1], action = m[2];
     if (!action && req.method === 'GET') return sendJson(res, 200, { ...readMeta(id), ideas: readIdeas(id) });

@@ -53,15 +53,45 @@ async function readPhoto(file) {
   catch { throw new Error('Das Bild konnte nicht gelesen werden. Bitte als JPEG oder PNG exportieren.'); }
 }
 
+// Eigener Bestätigungsdialog (Browser-Dialoge werden manchmal blockiert)
+function askConfirm(text, okLabel = 'Löschen') {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog'); d.className = 'confirm';
+    d.innerHTML = `<p>${esc(text)}</p><div class="row"><button class="btn danger" type="button" value="ok">${esc(okLabel)}</button><button class="btn" type="button" value="cancel" autofocus>Abbrechen</button></div>`;
+    d.addEventListener('click', (e) => { const v = e.target.closest('button')?.value; if (v) d.close(v); });
+    d.addEventListener('close', () => { resolve(d.returnValue === 'ok'); d.remove(); });
+    document.body.appendChild(d); d.showModal();
+  });
+}
+async function deleteProject(id) {
+  const title = (projects.find((p) => p.id === id) || cur || {}).title || 'Projekt';
+  if (!(await askConfirm(`Projekt „${title}“ mit allen Bildern und Ideen löschen? Das lässt sich nicht rückgängig machen.`))) return;
+  try {
+    await api('DELETE', '/api/projects/' + id);
+    await refreshProjects(); toast('Projekt gelöscht');
+    if (cur && cur.id === id) { if (projects.length) await openProject(projects[0].id); else showNew(); }
+  } catch (e) { toast(e.message, true); }
+}
+async function deleteRedesign(file) {
+  if (!(await askConfirm('Dieses Redesign-Bild löschen?'))) return;
+  try {
+    await api('DELETE', `/api/projects/${cur.id}/redesign/${encodeURIComponent(file)}`);
+    cur = await api('GET', '/api/projects/' + cur.id);
+    shown = (cur.redesigns || []).slice(-1)[0]?.file || null;
+    await refreshProjects(); renderProject(); toast('Bild gelöscht');
+  } catch (e) { toast(e.message, true); }
+}
+
 /* ---------- Seitenleiste ---------- */
 function renderRail() {
   const ul = $('#projects');
   ul.innerHTML = projects.length ? projects.map((p) => `
-    <li><button type="button" data-id="${esc(p.id)}" ${cur && cur.id === p.id ? 'aria-current="true"' : ''}>
+    <li><button type="button" class="pi" data-id="${esc(p.id)}" ${cur && cur.id === p.id ? 'aria-current="true"' : ''}>
       <span class="t">${esc(p.title)}</span>
       <span class="s">${esc(p.room)} · ${new Date(p.createdAt).toLocaleDateString('de-AT')}${p.redesigns ? ' · ' + p.redesigns + ' Bild' + (p.redesigns > 1 ? 'er' : '') : ''}</span>
-    </button></li>`).join('') : '<li class="s hint">Noch keine Projekte.</li>';
-  ul.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => openProject(b.dataset.id)));
+    </button><button type="button" class="x" data-del="${esc(p.id)}" aria-label="Projekt ${esc(p.title)} löschen" title="Projekt löschen">×</button></li>`).join('') : '<li class="s hint">Noch keine Projekte.</li>';
+  ul.querySelectorAll('.pi').forEach((b) => b.addEventListener('click', () => openProject(b.dataset.id)));
+  ul.querySelectorAll('.x').forEach((b) => b.addEventListener('click', () => deleteProject(b.dataset.del)));
   renderStatus();
 }
 function renderStatus() {
@@ -162,14 +192,26 @@ function renderProject() {
     <span class="meta">${esc(cur.room)} · ${new Date(cur.createdAt).toLocaleDateString('de-AT')}</span>
     <button class="btn small danger" id="del" type="button">Projekt löschen</button>
   </div>
-  ${cur.description ? `<p class="hint">${esc(cur.description)}</p>` : ''}
+  <div class="brief" id="brief"></div>
   <div id="stageWrap">${stageHTML()}</div>
   <div class="thumbs" id="thumbs">${rds.length ? `
     <button type="button" data-f="" aria-pressed="${!shown}" aria-label="Nur Originalfoto"><img src="${fileUrl(cur.photo)}" alt=""></button>
     ${rds.map((r) => `<button type="button" data-f="${esc(r.file)}" aria-pressed="${shown === r.file}" title="${esc(r.style)} · ${esc(r.model)}"><img src="${fileUrl(r.file)}" alt="Redesign ${esc(r.style)}"></button>`).join('')}
-    ${shown ? `<a class="dl" href="${fileUrl(shown)}" download>Bild speichern</a>` : ''}` : '<span class="hint">Noch kein Redesign. Wähle unten einen Stil.</span>'}</div>
+    ${shown ? `<span class="dl"><a href="${fileUrl(shown)}" download>Bild speichern</a><button class="btn small danger" id="delImg" type="button">Bild löschen</button></span>` : ''}` : '<span class="hint">Noch kein Redesign. Hole zuerst Ideen und erzeuge dann unten das Redesign.</span>'}</div>
 
   <section class="panel">
+    <h3>Ideen von Claude</h3>
+    <div class="row">
+      <label class="f">Budget (optional)<input id="budget" placeholder="z. B. 1500 EUR" value="${esc(cur.ideas?.budget || '')}"></label>
+      <label class="f" style="flex:1;min-width:220px">Zusätzliche Wünsche (optional)<input id="notes" placeholder="z. B. Platz für Homeoffice, Katze, wenig Stauraum"></label>
+      <button class="btn primary" id="ideasBtn" type="button">${cur.ideas ? 'Ideen neu erzeugen' : 'Ideen von Claude holen'}</button>
+    </div>
+    <p class="hint">Claude berücksichtigt: Foto, Raumtyp, deine Beschreibung (oben), den gewählten Stil, Budget und Zusatzwünsche. Maße sind Schätzungen vom Foto.</p>
+    <p class="err" id="ideasErr"></p>
+    <div id="ideas">${cur.ideas ? ideasHTML(cur.ideas.result) : ''}</div>
+  </section>
+
+  <section class="panel" id="redesignPanel">
     <h3>Redesign aus dem Foto</h3>
     <div class="chips" role="group" aria-label="Stilvorlage">${cfg.styles.map((s) => `
       <button type="button" class="chip" data-s="${esc(s.id)}" aria-pressed="${ui.styleId === s.id}">
@@ -192,18 +234,6 @@ function renderProject() {
     <div class="row" style="margin-top:14px"><button class="btn primary" id="go" type="button">Redesign erzeugen</button></div>
     <p class="hint" id="cost"></p>
     <p class="err" id="rdErr"></p>
-  </section>
-
-  <section class="panel">
-    <h3>Ideen für Raum und Möbel</h3>
-    <div class="row">
-      <label class="f">Budget (optional)<input id="budget" placeholder="z. B. 1500 EUR" value="${esc(cur.ideas?.budget || '')}"></label>
-      <label class="f" style="flex:1;min-width:220px">Zusätzliche Wünsche (optional)<input id="notes" placeholder="z. B. Platz für Homeoffice, Katze, wenig Stauraum"></label>
-      <button class="btn primary" id="ideasBtn" type="button">${cur.ideas ? 'Ideen neu erzeugen' : 'Ideen von Claude holen'}</button>
-    </div>
-    <p class="hint">Claude wertet Foto, Beschreibung und gewählten Stil aus. Maße sind Schätzungen vom Foto.</p>
-    <p class="err" id="ideasErr"></p>
-    <div id="ideas">${cur.ideas ? ideasHTML(cur.ideas.result) : ''}</div>
   </section>`;
 
   const upd = () => {
@@ -211,10 +241,9 @@ function renderProject() {
     $('#cost').textContent = `Geschätzte Kosten: ${usd(c)}. Dauer meist 20 bis 60 Sekunden.`;
   };
   upd();
-  $('#del').addEventListener('click', async () => {
-    if (!confirm('Projekt mit allen Bildern und Ideen löschen?')) return;
-    await api('DELETE', '/api/projects/' + cur.id); await refreshProjects(); showNew();
-  });
+  $('#del').addEventListener('click', () => deleteProject(cur.id));
+  const di = $('#delImg'); if (di) di.addEventListener('click', () => deleteRedesign(shown));
+  renderBrief(false);
   $('#thumbs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { shown = b.dataset.f || null; renderProject(); }));
   document.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', () => {
     ui.styleId = b.dataset.s; store('style', ui.styleId);
@@ -240,6 +269,10 @@ function renderProject() {
   $('#cprompt').addEventListener('input', (e) => { ui.customPrompt = e.target.value; });
   $('#suggest').addEventListener('click', doSuggest);
   renderFurn();
+  document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => {
+    ui.concept = b.dataset.pick; furnReset(); $('#concept').value = ui.concept; renderFurn();
+    toast('Konzept gewählt. Unten das Redesign erzeugen.'); $('#redesignPanel').scrollIntoView();
+  }));
   $('#go').addEventListener('click', doRedesign);
   $('#ideasBtn').addEventListener('click', doIdeas);
   const rng = $('#cmpRange');
@@ -279,30 +312,54 @@ async function doIdeas() {
   } catch (e) { $('#ideasErr').textContent = e.message; btn.disabled = false; btn.classList.remove('busy'); refreshConfig(); }
 }
 
+function renderBrief(edit) {
+  const b = $('#brief'); if (!b) return;
+  if (!edit) {
+    b.innerHTML = `<div class="bh"><b>Deine Beschreibung</b><span class="hint">Raumtyp: ${esc(cur.room)}. Sie fließt in Ideen und Redesign ein.</span><button class="btn small" id="editBrief" type="button">Bearbeiten</button></div>
+      <p class="bt">${cur.description ? esc(cur.description) : '<span class="hint">Noch keine Beschreibung. Mit Beschreibung werden Ideen und Redesign besser.</span>'}</p>`;
+    $('#editBrief').addEventListener('click', () => renderBrief(true));
+    return;
+  }
+  b.innerHTML = `<label class="f">Art des Raums<select id="bRoom">${cfg.rooms.map((r) => `<option ${r === cur.room ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
+    <label class="f" style="margin-top:8px">Beschreibung<textarea id="bDesc" rows="4">${esc(cur.description || '')}</textarea></label>
+    <div class="row" style="margin-top:8px"><button class="btn primary small" id="bSave" type="button">Speichern</button><button class="btn small" id="bCancel" type="button">Abbrechen</button></div>
+    <p class="err" id="bErr"></p>`;
+  $('#bCancel').addEventListener('click', () => renderBrief(false));
+  $('#bSave').addEventListener('click', async () => {
+    try {
+      const m = await api('PATCH', '/api/projects/' + cur.id, { room: $('#bRoom').value, description: $('#bDesc').value });
+      cur.room = m.room; cur.description = m.description; await refreshProjects();
+      renderProject(); toast(cur.ideas ? 'Gespeichert. Ideen neu erzeugen, damit sie die Änderung berücksichtigen.' : 'Gespeichert');
+    } catch (e) { $('#bErr').textContent = e.message; }
+  });
+}
+
 function list(a) { return (a || []).map((x) => `<li>${esc(x)}</li>`).join(''); }
 function ideasHTML(r) {
   if (!r) return '';
   const a = r.analyse || {};
+  const facts = [
+    a.licht && ['Licht', esc(a.licht)],
+    (a.probleme || []).length && ['Probleme', esc(a.probleme.join('; '))],
+    (a.potenzial || []).length && ['Potenzial', esc(a.potenzial.join('; '))],
+  ].filter(Boolean);
   return `
   <p class="lead">${esc(r.zusammenfassung)}</p>
-  <div class="cols">
-    <div><h4>Licht</h4><p style="margin:0">${esc(a.licht)}</p></div>
-    <div><h4>Probleme</h4><ul>${list(a.probleme)}</ul></div>
-    <div><h4>Potenzial</h4><ul>${list(a.potenzial)}</ul></div>
-  </div>
-  ${(r.konzepte || []).map((c, i) => `
-    <article class="concept">
-      <h3>${esc(c.titel)}</h3>
-      <div class="tags">Aufwand ${esc(c.aufwand)} · Budget ${esc(c.budget_eur)} EUR</div>
-      <p class="lead">${esc(c.idee)}</p>
-      <div class="swatches">${(c.farben || []).map((f) => `<span class="sw"><i style="background:${hexOk(f.hex) ? esc(f.hex) : 'transparent'}"></i>${esc(f.name)}</span>`).join('')}</div>
-      ${(c.materialien || []).length ? `<p style="margin:0 0 6px"><b>Materialien:</b> ${esc(c.materialien.join(', '))}</p>` : ''}
-      <ul class="furn">${(c.moebel || []).map((m) => `
-        <li><span class="n">${esc(m.name)}</span> · ${esc(m.masse_cm)} cm · ca. ${esc(m.preis_eur)} EUR<br>
-        ${esc(m.platzierung)}<br>
-        <a href="https://www.google.at/search?tbm=shop&q=${encodeURIComponent(m.suchbegriff || m.name)}" target="_blank" rel="noopener noreferrer">Suchen: ${esc(m.suchbegriff || m.name)}</a></li>`).join('')}</ul>
-    </article>`).join('')}
-  ${(r.schnelle_erfolge || []).length ? `<div class="concept"><h3>Schnelle Erfolge unter 50 EUR</h3><ul class="quick">${list(r.schnelle_erfolge)}</ul></div>` : ''}
+  ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>` : ''}
+  <div class="concepts">${(r.konzepte || []).map((c, i) => `
+    <details class="cc" ${i === 0 ? 'open' : ''}>
+      <summary><span class="ct">${esc(c.titel)}</span><span class="cm">Aufwand ${esc(c.aufwand)}, ${esc(c.budget_eur)} EUR</span>
+        <span class="sws">${(c.farben || []).map((f) => `<i title="${esc(f.name)}" style="background:${hexOk(f.hex) ? esc(f.hex) : 'transparent'}"></i>`).join('')}</span></summary>
+      <div class="cb">
+        <p>${esc(c.idee)}</p>
+        ${(c.materialien || []).length ? `<p class="mats">Material: ${esc(c.materialien.join(', '))}. Farben: ${esc((c.farben || []).map((f) => f.name).join(', '))}.</p>` : ''}
+        <ul class="furn compact">${(c.moebel || []).map((m) => `
+          <li><b>${esc(m.name)}</b> <span class="mm">${esc(m.masse_cm)} cm, ca. ${esc(m.preis_eur)} EUR</span><br>
+          <span class="hint">${esc(m.platzierung)}</span> <a href="https://www.google.at/search?tbm=shop&q=${encodeURIComponent(m.suchbegriff || m.name)}" target="_blank" rel="noopener noreferrer">Suchen</a></li>`).join('')}</ul>
+        <button class="btn small" type="button" data-pick="${i}">Dieses Konzept fürs Redesign wählen</button>
+      </div>
+    </details>`).join('')}</div>
+  ${(r.schnelle_erfolge || []).length ? `<details class="cc"><summary><span class="ct">Schnelle Erfolge unter 50 EUR</span></summary><div class="cb"><ul class="quick">${list(r.schnelle_erfolge)}</ul></div></details>` : ''}
   ${r.hinweis ? `<p class="hint">${esc(r.hinweis)}</p>` : ''}`;
 }
 
@@ -348,7 +405,7 @@ async function showSettings() {
   };
   $('#sSave').addEventListener('click', () => save({}));
   document.querySelectorAll('[data-clear]').forEach((b) => b.addEventListener('click', () => {
-    if (confirm('Gespeicherten Schlüssel aus der .env entfernen?')) save(b.dataset.clear === 'kA' ? { clearAnthropic: true } : { clearAtlas: true });
+    askConfirm('Gespeicherten Schlüssel aus der .env entfernen?', 'Entfernen').then((ok) => { if (ok) save(b.dataset.clear === 'kA' ? { clearAnthropic: true } : { clearAtlas: true }); });
   }));
 }
 
