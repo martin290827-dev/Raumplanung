@@ -272,6 +272,7 @@ function renderProject() {
     <h3>Ideen von Claude</h3>
     <div class="row"><button class="btn primary" id="ideasBtn" type="button">${cur.ideas ? 'Ideen neu erzeugen' : 'Ideen von Claude holen'}</button></div>
     <p class="hint">Claude nutzt das Foto und deine Angaben oben: Beschreibung, was dich stört, Wünsche, Budget und Stil. Kosten etwa 0,05 USD. Maße sind Schätzungen vom Foto.</p>
+    <p class="hint" id="ideasWait"></p>
     <p class="err" id="ideasErr"></p>
     <div id="ideas">${cur.ideas ? ideasHTML(cur.ideas.result) : ''}</div>
   </section>
@@ -372,10 +373,11 @@ function renderOwn(adding) {
   });
   box.querySelectorAll('[data-o]').forEach((c) => c.addEventListener('change', () => { if (c.checked) ui.own.add(c.dataset.o); else ui.own.delete(c.dataset.o); }));
   box.querySelectorAll('[data-od]').forEach((b) => b.addEventListener('click', async () => {
-    if (!(await askConfirm('Dieses Möbelstück entfernen?', 'Entfernen'))) return;
-    try { const r = await api('DELETE', `/api/projects/${cur.id}/furniture/${b.dataset.od}`); cur.furniture = r.furniture; ui.own.delete(b.dataset.od); renderOwn(); }
-    catch (er) { toast(er.message, true); }
+    const li = b.closest('li'); li.style.opacity = '.4'; li.style.pointerEvents = 'none';
+    try { const r = await api('DELETE', `/api/projects/${cur.id}/furniture/${b.dataset.od}`); cur.furniture = r.furniture; ui.own.delete(b.dataset.od); renderOwn(); toast('Möbelstück entfernt'); }
+    catch (er) { li.style.opacity = ''; li.style.pointerEvents = ''; toast(er.message, true); }
   }));
+
 }
 function showOwnForm(ph, guess) {
   const f = $('#ownForm');
@@ -417,14 +419,23 @@ async function doRedesign() {
   } catch (e) { $('#rdErr').textContent = e.message; btn.disabled = false; btn.classList.remove('busy'); refreshConfig(); }
 }
 async function doIdeas() {
-  const btn = $('#ideasBtn'); btn.disabled = true; btn.classList.add('busy'); $('#ideasErr').textContent = '';
+  const btns = ['#ideasBtn', '#regen'].map((q) => $(q)).filter(Boolean);
+  const wait = $('#ideasWait'); const t0 = Date.now();
+  btns.forEach((b) => { b.disabled = true; b.classList.add('busy'); });
+  $('#ideasErr').textContent = '';
+  const tick = () => { if (wait) wait.textContent = `Claude analysiert Foto und Angaben … ${Math.round((Date.now() - t0) / 1000)} s. Das dauert meist 20 bis 60 Sekunden.`; };
+  tick(); const timer = setInterval(tick, 1000);
+  if (wait) wait.scrollIntoView({ block: 'center', behavior: 'smooth' });
   try {
     cur.ideas = await api('POST', `/api/projects/${cur.id}/ideas`, {});
     const cs1 = (cur.ideas.result && cur.ideas.result.konzepte) || [];
     const rc1 = recommendedConcept(cur, cs1);
     ui.concept = rc1 >= 0 ? String(rc1) : ''; ui.furn = new Set(rc1 >= 0 ? (cs1[rc1].moebel || []).map((_, i) => i) : []);
-    await refreshConfig(); renderProject(); toast('Ideen gespeichert');
-  } catch (e) { $('#ideasErr').textContent = e.message; btn.disabled = false; btn.classList.remove('busy'); refreshConfig(); }
+    clearInterval(timer); await refreshConfig(); renderProject(); toast('Ideen gespeichert');
+  } catch (e) {
+    clearInterval(timer); if (wait) wait.textContent = '';
+    $('#ideasErr').textContent = e.message; btns.forEach((b) => { b.disabled = false; b.classList.remove('busy'); }); refreshConfig();
+  }
 }
 
 function renderBrief(edit) {

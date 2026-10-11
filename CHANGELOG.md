@@ -3,6 +3,10 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.6.1
+- "Ideen neu erzeugen" zeigt sofort Rückmeldung: Knopf gesperrt mit Ladeanzeige und Sekundenzähler direkt im Ideen-Bereich (vorher war am Hinweis-Knopf nichts zu sehen)
+- Eigenes Möbelstück entfernen geht sofort, ohne Rückfrage
+
 ## 1.6.0
 - Eigene Möbel: Im Redesign-Bereich Fotos von Möbelstücken hochladen (Name und Platzwunsch dazu). Das Bildmodell bekommt Raumfoto und Möbelfotos und baut genau diese Stücke ein
 - Eigene Möbel sind pro Bild an- und abwählbar (bis zu 4 gleichzeitig) und lassen sich entfernen
