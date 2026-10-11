@@ -3,6 +3,13 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.7.0
+- Redesign-Bereich aufgeräumt: Stil, Konzept (mit Möbeln und eigenen Möbeln), eine Anweisung, dann Schalter, Modell, Anzahl
+- Es gibt nur noch EIN Textfeld "Anweisung an das Bildmodell" (vorher zwei: "Zusätzlich" und die Anweisung). Es ist auf Deutsch, füllt sich automatisch aus Angaben, Konzept, gewählten Möbeln und eigenen Möbeln und ist jederzeit frei änderbar. "Automatisch neu erstellen" setzt zurück, "Von Claude formulieren lassen" lässt Claude einen Text schreiben
+- Fehler behoben: "Dieses Konzept fürs Redesign wählen" wurde nicht übernommen, wenn vorher eine Anweisung gespeichert war. Jetzt aktualisiert sich die Anweisung sofort
+- Bild vergrößern: Knopf rechts unten im Bild öffnet eine Großansicht mit Vorher-Nachher-Regler (Esc schließt), das normale Bild ist ebenfalls größer
+- Stil und Preisniveau (Budget oder mittlere Qualität) ergänzt die App im Hintergrund selbst
+
 ## 1.6.2
 - Die Bildanweisung, die Claude schreibt, ist jetzt auf Deutsch und lässt sich auf Deutsch bearbeiten
 - Die festen Schutzregeln für Raum und Möbel im Hintergrund bleiben englisch, weil Bildmodelle Englisch am zuverlässigsten umsetzen

@@ -241,7 +241,11 @@ function ownRefs(own) {
     '. Place each of these exact pieces into the room of image 1, copy its shape, color, material and proportions faithfully, scale it realistically to the room and do not redesign it. Do not copy the background of the reference photos.';
 }
 function buildRedesignPrompt(style, meta, concept, o = {}) {
-  if (o.customPrompt) return PRESERVE + ' ' + o.customPrompt;
+  if (o.customPrompt) {
+    const bud0 = parseBudget(meta.budget);
+    return `${PRESERVE} Style: ${style.prompt}. ` + (bud0 > 0 ? `Furniture and finishes must look realistic for a total budget of about ${bud0} EUR. ` : 'Furniture and finishes: solid mid-range quality, neither cheap-looking nor luxury. ') +
+      'The following instruction is written in German by the owner and must be followed literally: ' + o.customPrompt;
+  }
   let p = PRESERVE;
   if (o.keep) p += ' Keep the main existing furniture and the room layout where they are; restyle and add around them.';
   else p += ' Change furniture, decor, colors, materials and lighting.';

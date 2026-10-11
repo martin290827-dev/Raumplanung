@@ -38,7 +38,7 @@ let projects = [];
 let cur = null;            // aktuelles Projekt (inkl. ideas)
 let shown = null;          // angezeigtes Redesign (Dateiname) oder null
 let pending = null;        // { dataUrl, width, height } im Formular "Neues Projekt"
-const ui = { styleId: null, modelId: null, count: 1, concept: '', wishes: '', customPrompt: '', keep: true, furn: new Set(), own: new Set() };
+const ui = { styleId: null, modelId: null, count: 1, concept: '', prompt: '', edited: false, keep: true, furn: new Set(), own: new Set() };
 
 function store(k, v) { try { if (v === undefined) return localStorage.getItem('rp.' + k); localStorage.setItem('rp.' + k, v); } catch { return null; } }
 
@@ -228,7 +228,7 @@ async function openProject(id) {
   ui.styleId = cur.style || store('style') || cfg.styles[0].id;
   ui.modelId = ui.modelId || store('model') || cfg.models[0].id;
   if (!cfg.models.some((m) => m.id === ui.modelId)) ui.modelId = cfg.models[0].id;
-  ui.wishes = ''; ui.customPrompt = ''; ui.keep = true;
+  ui.prompt = ''; ui.edited = false; ui.keep = true;
   const cs0 = (cur.ideas && cur.ideas.result && cur.ideas.result.konzepte) || [];
   const rc = recommendedConcept(cur, cs0);
   ui.concept = rc >= 0 ? String(rc) : '';
@@ -238,17 +238,31 @@ async function openProject(id) {
 }
 const fileUrl = (name) => `/files/${encodeURIComponent(cur.id)}/${encodeURIComponent(name)}`;
 
-function stageHTML() {
+function stageHTML(big) {
   const ar = cur.width && cur.height ? (cur.width / cur.height).toFixed(4) : '1.5';
   const before = fileUrl(cur.photo);
-  if (!shown) return `<div class="stage" style="--ar:${ar}"><img src="${before}" alt="Foto des Raums"></div>`;
-  return `<div class="stage compare" id="cmp" style="--ar:${ar}">
+  const zoom = big ? '' : '<button type="button" class="zoom" data-zoom aria-label="Bild vergrößern" title="Vergrößern"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3h5v5M8 17H3v-5M17 3l-5.5 5.5M3 17l5.5-5.5"/></svg></button>';
+  if (!shown) return `<div class="stage" style="--ar:${ar}"><img src="${before}" alt="Foto des Raums">${zoom}</div>`;
+  return `<div class="stage compare"${big ? '' : ' id="cmp"'} style="--ar:${ar}">
     <img class="after" src="${fileUrl(shown)}" alt="Redesign">
-    <img class="before" id="cmpBefore" src="${before}" alt="Originalfoto">
-    <div class="handle" id="cmpHandle"></div>
+    <img class="before" src="${before}" alt="Originalfoto">
+    <div class="handle"></div>
     <span class="tag l">Vorher</span><span class="tag r">Nachher</span>
-    <input type="range" min="0" max="100" value="50" id="cmpRange" aria-label="Vorher-Nachher-Regler">
+    <input type="range" min="0" max="100" value="50" aria-label="Vorher-Nachher-Regler">
+    ${zoom}
   </div>`;
+}
+function initCompare(root) {
+  const rng = root.querySelector('input[type=range]'); if (!rng) return;
+  const set = () => { root.querySelector('.before').style.clipPath = `inset(0 ${100 - rng.value}% 0 0)`; root.querySelector('.handle').style.left = rng.value + '%'; };
+  rng.addEventListener('input', set); set();
+}
+function openLightbox() {
+  const d = document.createElement('dialog'); d.className = 'lightbox';
+  d.innerHTML = `${stageHTML(true)}<div class="lbbar">${shown ? `<a href="${fileUrl(shown)}" download>Bild speichern</a>` : ''}<button class="btn small" type="button" id="lbClose">Schließen</button></div>`;
+  d.addEventListener('click', (e) => { if (e.target === d || e.target.id === 'lbClose') d.close(); });
+  d.addEventListener('close', () => d.remove());
+  document.body.appendChild(d); d.showModal(); initCompare(d);
 }
 
 function renderProject() {
@@ -279,25 +293,23 @@ function renderProject() {
 
   <section class="panel" id="redesignPanel">
     <h3>Redesign aus dem Foto</h3>
+    <div class="f" style="margin-bottom:6px"><span>Stil</span></div>
     <div class="chips" role="group" aria-label="Stilvorlage">${cfg.styles.map((s) => `
       <button type="button" class="chip" data-s="${esc(s.id)}" aria-pressed="${ui.styleId === s.id}">
         <span class="dots">${s.farben.map((c) => `<i style="background:${esc(c)}"></i>`).join('')}</span>${esc(s.name)}</button>`).join('')}</div>
-    <label class="f" style="margin-bottom:12px">Zusätzlich für dieses Bild (optional)
-      <textarea id="wishes" rows="3" placeholder="Gilt nur für diese Bildrunde, z. B. Die Kommode mit den Bildern bleibt. Spiegel über dem Schuhregal.">${esc(ui.wishes)}</textarea>
+    <label class="f">Konzept<select id="concept"><option value="">Kein Konzept, nur Stil</option>${concepts.map((c, i) => `<option value="${i}" ${String(i) === ui.concept ? 'selected' : ''}>${esc(c.titel)}${i === recommendedConcept(cur, concepts) ? ' (empfohlen)' : ''}</option>`).join('')}</select></label>
+    <div id="furn" style="margin-top:12px"></div>
+    <div id="own" class="own"></div>
+    <label class="f" style="margin-top:14px">Anweisung an das Bildmodell
+      <textarea id="prompt" rows="8" placeholder="Wird automatisch aus Konzept und Angaben erstellt.">${esc(ui.prompt)}</textarea>
     </label>
-    <label class="opt"><span>Vorhandene Möbel und Raumaufteilung beibehalten</span><span class="switch"><input type="checkbox" id="keep" ${ui.keep ? 'checked' : ''}><i></i></span></label>
+    <div class="phint"><span class="hint" id="pHint"></span>
+      <span class="plinks"><button class="lnk" id="pReset" type="button" hidden>Automatisch neu erstellen</button><button class="lnk" id="suggest" type="button">Von Claude formulieren lassen</button></span></div>
+    <label class="opt" style="margin-top:14px"><span>Vorhandene Möbel und Raumaufteilung beibehalten</span><span class="switch"><input type="checkbox" id="keep" ${ui.keep ? 'checked' : ''}><i></i></span></label>
     <div class="row">
       <label class="f">Modell<select id="model">${cfg.models.map((m) => `<option value="${esc(m.id)}" ${m.id === ui.modelId ? 'selected' : ''}>${esc(m.name)} (${m.preis.toFixed(3).replace('.', ',')} USD pro Bild)</option>`).join('')}</select></label>
       <div class="f"><span id="cntLbl">Anzahl</span><div class="seg" role="radiogroup" aria-labelledby="cntLbl">${[1, 2, 3].map((n) => `<button type="button" role="radio" data-n="${n}" aria-checked="${n === ui.count}">${n}</button>`).join('')}</div></div>
-      <label class="f">Nach Konzept<select id="concept"><option value="">Nur Stilvorlage</option>${concepts.map((c, i) => `<option value="${i}" ${String(i) === ui.concept ? 'selected' : ''}>${esc(c.titel)}</option>`).join('')}</select></label>
     </div>
-    <div id="furn" style="margin-top:14px"></div>
-    <div id="own" class="own"></div>
-    <div class="row" style="margin-top:6px"><button class="btn" id="suggest" type="button">Bildanweisung von Claude schreiben lassen</button></div>
-    <label class="f" id="pbox" style="margin-top:10px" ${ui.customPrompt ? '' : 'hidden'}>Anweisung an das Bildmodell (deutsch, bearbeitbar)
-      <textarea id="cprompt" class="mono" rows="7">${esc(ui.customPrompt)}</textarea>
-      <span class="hint" style="font-weight:400">Ist dieses Feld gefüllt, wird es statt der automatischen Anweisung verwendet. Leer lassen für automatisch.</span>
-    </label>
     <div class="row" style="margin-top:14px"><button class="btn primary" id="go" type="button">Redesign erzeugen</button></div>
     <p class="hint" id="cost"></p>
     <p class="err" id="rdErr"></p>
@@ -331,25 +343,54 @@ function renderProject() {
     if (!c || !(c.moebel || []).length) { box.innerHTML = ''; return; }
     box.innerHTML = `<fieldset class="furnsel"><legend>Möbel aus dem Konzept im Bild einbauen</legend>${c.moebel.map((m, i) =>
       `<label><input type="checkbox" data-i="${i}" ${ui.furn.has(i) ? 'checked' : ''}><span><b>${esc(m.name)}</b> <span class="hint">${esc(m.platzierung)}</span></span></label>`).join('')}</fieldset>`;
-    box.querySelectorAll('input').forEach((inp) => inp.addEventListener('change', () => { if (inp.checked) ui.furn.add(+inp.dataset.i); else ui.furn.delete(+inp.dataset.i); }));
+    box.querySelectorAll('input').forEach((inp) => inp.addEventListener('change', () => { if (inp.checked) ui.furn.add(+inp.dataset.i); else ui.furn.delete(+inp.dataset.i); syncPrompt(); }));
   };
-  $('#concept').addEventListener('change', (e) => { ui.concept = e.target.value; furnReset(); renderFurn(); });
-  $('#wishes').addEventListener('input', (e) => { ui.wishes = e.target.value; });
-  $('#keep').addEventListener('change', (e) => { ui.keep = e.target.checked; });
-  $('#cprompt').addEventListener('input', (e) => { ui.customPrompt = e.target.value; });
+  $('#concept').addEventListener('change', (e) => { ui.concept = e.target.value; furnReset(); renderFurn(); syncPrompt(); });
+  $('#keep').addEventListener('change', (e) => { ui.keep = e.target.checked; syncPrompt(); });
+  $('#prompt').addEventListener('input', (e) => { ui.prompt = e.target.value; ui.edited = true; promptHint(); });
+  $('#prompt').addEventListener('blur', () => { if (!ui.prompt.trim()) { ui.edited = false; syncPrompt(); } });
+  $('#pReset').addEventListener('click', () => { ui.edited = false; syncPrompt(); });
   $('#suggest').addEventListener('click', doSuggest);
-  renderFurn(); renderOwn();
+  renderFurn(); renderOwn(); syncPrompt();
   document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => {
-    ui.concept = b.dataset.pick; furnReset(); $('#concept').value = ui.concept; renderFurn();
-    toast('Konzept gewählt. Unten das Redesign erzeugen.'); $('#redesignPanel').scrollIntoView();
+    ui.concept = b.dataset.pick; ui.edited = false; furnReset(); $('#concept').value = ui.concept; renderFurn(); syncPrompt();
+    toast('Konzept übernommen. Die Anweisung ist aktualisiert.'); $('#redesignPanel').scrollIntoView();
   }));
   $('#go').addEventListener('click', doRedesign);
   $('#ideasBtn').addEventListener('click', doIdeas);
-  const rng = $('#cmpRange');
-  if (rng) {
-    const set = () => { $('#cmpBefore').style.clipPath = `inset(0 ${100 - rng.value}% 0 0)`; $('#cmpHandle').style.left = rng.value + '%'; };
-    rng.addEventListener('input', set); set();
+  const cmp = $('#cmp'); if (cmp) initCompare(cmp);
+  document.querySelectorAll('[data-zoom]').forEach((z) => z.addEventListener('click', openLightbox));
+}
+
+// Anweisung (Deutsch): wird automatisch aus Angaben, Konzept und Möbeln gebaut, bleibt frei bearbeitbar
+function autoPrompt() {
+  const cs = (cur.ideas && cur.ideas.result && cur.ideas.result.konzepte) || [];
+  const c = cs[ui.concept === '' ? -1 : +ui.concept];
+  const end = (t) => { t = String(t || '').trim(); return t && !/[.!?]$/.test(t) ? t + '.' : t; };
+  const L = [];
+  L.push(end(`${cur.room}${cur.description ? ': ' + cur.description : ''}`));
+  if (cur.problems) L.push(end('Das soll gelöst werden: ' + cur.problems));
+  if (cur.wishes) L.push(end('Wünsche: ' + cur.wishes));
+  if (c) {
+    const farben = (c.farben || []).map((f) => f.name).filter(Boolean).join(', ');
+    L.push(end(`Konzept „${c.titel}“: ${c.idee || ''}`));
+    if (farben || (c.materialien || []).length) L.push(end(`${farben ? 'Farben: ' + farben + '. ' : ''}${(c.materialien || []).length ? 'Materialien: ' + c.materialien.join(', ') : ''}`));
+    const items = (c.moebel || []).filter((_, i) => ui.furn.has(i)).map((m) => `${m.name}${m.masse_cm ? ' (' + m.masse_cm + ' cm)' : ''}${m.platzierung ? ', ' + m.platzierung.replace(/[.!?]$/, '').replace(/^./, (x) => x.toLowerCase()) : ''}`);
+    if (items.length) L.push(end('Diese Möbel einbauen: ' + items.join('; ')));
   }
+  const own = (cur.furniture || []).filter((f) => ui.own.has(f.id)).map((f) => f.name + (f.note ? ' (' + f.note + ')' : ''));
+  if (own.length) L.push(end('Meine eigenen Möbel genau so einbauen (Referenzfotos): ' + own.join('; ')));
+  L.push(ui.keep ? 'Vorhandene Möbel und die Raumaufteilung bleiben an ihrem Platz, ringsum wird umgestaltet.' : 'Möbel, Deko, Farben und Licht dürfen frei umgestaltet werden.');
+  return L.filter(Boolean).join('\n');
+}
+function promptHint() {
+  const h = $('#pHint'), r = $('#pReset'); if (!h) return;
+  h.textContent = ui.edited ? 'Von dir geändert. Diese Anweisung wird so verwendet.' : 'Entsteht automatisch aus deinen Angaben, dem Konzept und den Möbeln. Du kannst sie frei ändern.';
+  r.hidden = !ui.edited;
+}
+function syncPrompt() {
+  if (!ui.edited) { ui.prompt = autoPrompt(); const t = $('#prompt'); if (t) t.value = ui.prompt; }
+  promptHint();
 }
 
 function renderOwn(adding) {
@@ -371,10 +412,10 @@ function renderOwn(adding) {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     try { const ph = await readPhoto(f, 1024); showOwnForm(ph, f.name.replace(/\.[^.]+$/, '')); } catch (er) { toast(er.message, true); }
   });
-  box.querySelectorAll('[data-o]').forEach((c) => c.addEventListener('change', () => { if (c.checked) ui.own.add(c.dataset.o); else ui.own.delete(c.dataset.o); }));
+  box.querySelectorAll('[data-o]').forEach((c) => c.addEventListener('change', () => { if (c.checked) ui.own.add(c.dataset.o); else ui.own.delete(c.dataset.o); syncPrompt(); }));
   box.querySelectorAll('[data-od]').forEach((b) => b.addEventListener('click', async () => {
     const li = b.closest('li'); li.style.opacity = '.4'; li.style.pointerEvents = 'none';
-    try { const r = await api('DELETE', `/api/projects/${cur.id}/furniture/${b.dataset.od}`); cur.furniture = r.furniture; ui.own.delete(b.dataset.od); renderOwn(); toast('Möbelstück entfernt'); }
+    try { const r = await api('DELETE', `/api/projects/${cur.id}/furniture/${b.dataset.od}`); cur.furniture = r.furniture; ui.own.delete(b.dataset.od); renderOwn(); syncPrompt(); toast('Möbelstück entfernt'); }
     catch (er) { li.style.opacity = ''; li.style.pointerEvents = ''; toast(er.message, true); }
   }));
 
@@ -393,23 +434,23 @@ function showOwnForm(ph, guess) {
     try {
       const r = await api('POST', `/api/projects/${cur.id}/furniture`, { photo: ph.dataUrl, name: $('#oName').value, note: $('#oNote').value });
       const added = r.furniture.find((x) => !(cur.furniture || []).some((y) => y.id === x.id));
-      cur.furniture = r.furniture; if (added) ui.own.add(added.id); renderOwn(); toast('Möbelstück hinzugefügt');
+      cur.furniture = r.furniture; if (added) ui.own.add(added.id); renderOwn(); syncPrompt(); toast('Möbelstück hinzugefügt');
     } catch (er) { $('#oErr').textContent = er.message; b.disabled = false; }
   });
 }
 async function doSuggest() {
   const btn = $('#suggest'); btn.disabled = true; btn.classList.add('busy'); $('#rdErr').textContent = '';
   try {
-    const out = await api('POST', `/api/projects/${cur.id}/prompt`, { styleId: ui.styleId, conceptIndex: ui.concept, wishes: ui.wishes, keep: ui.keep, furnitureIdx: [...ui.furn] });
-    ui.customPrompt = out.prompt; $('#cprompt').value = out.prompt; $('#pbox').hidden = false;
-    await refreshConfig(); toast('Anweisung geschrieben. Du kannst sie ändern.');
+    const out = await api('POST', `/api/projects/${cur.id}/prompt`, { styleId: ui.styleId, conceptIndex: ui.concept, wishes: '', keep: ui.keep, furnitureIdx: [...ui.furn] });
+    ui.prompt = out.prompt; ui.edited = true; $('#prompt').value = out.prompt; promptHint();
+    await refreshConfig(); toast('Anweisung von Claude geschrieben. Du kannst sie ändern.');
   } catch (e) { $('#rdErr').textContent = e.message; refreshConfig(); }
   btn.disabled = false; btn.classList.remove('busy');
 }
 async function doRedesign() {
   const btn = $('#go'); btn.disabled = true; btn.classList.add('busy'); $('#rdErr').textContent = '';
   try {
-    const out = await api('POST', `/api/projects/${cur.id}/redesign`, { styleId: ui.styleId, modelId: ui.modelId, count: ui.count, conceptIndex: ui.concept, wishes: ui.wishes, keep: ui.keep, furnitureIdx: [...ui.furn], ownIds: [...ui.own], customPrompt: ui.customPrompt });
+    const out = await api('POST', `/api/projects/${cur.id}/redesign`, { styleId: ui.styleId, modelId: ui.modelId, count: ui.count, conceptIndex: ui.concept, wishes: '', keep: ui.keep, furnitureIdx: [...ui.furn], ownIds: [...ui.own], customPrompt: ui.prompt.trim() });
     const keepIdeas = cur.ideas; cur = await api('GET', '/api/projects/' + cur.id); cur.ideas = cur.ideas || keepIdeas;
     shown = out.added[out.added.length - 1].file;
     await Promise.all([refreshConfig(), refreshProjects()]); renderProject();

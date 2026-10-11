@@ -128,7 +128,7 @@ textarea.mono { font-family: var(--mono); font-size: 13px; line-height: 1.45; }
 .phead h2 { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; margin-right: auto; }
 .phead .meta { color: var(--text-2); width: 100%; order: 3; margin-top: -10px; }
 .phead .btn { order: 2; }
-.stage { --ar: 1.5; position: relative; width: min(100%, calc(70vh * var(--ar))); aspect-ratio: var(--ar); background: #000; border-radius: 20px; overflow: hidden; user-select: none; box-shadow: 0 2px 6px rgba(0,0,0,.08), 0 14px 40px rgba(0,0,0,.14); }
+.stage { --ar: 1.5; position: relative; width: min(100%, calc(80vh * var(--ar))); aspect-ratio: var(--ar); background: #000; border-radius: 20px; overflow: hidden; user-select: none; box-shadow: 0 2px 6px rgba(0,0,0,.08), 0 14px 40px rgba(0,0,0,.14); }
 .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .compare img.before { clip-path: inset(0 50% 0 0); }
 .compare .handle { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 6px rgba(0,0,0,.35); pointer-events: none; }
@@ -247,3 +247,23 @@ dialog.confirm .btn { padding: 10px; }
 .ownnew > img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; flex: none; }
 .ownfs { display: grid; gap: 10px; flex: 1; min-width: 0; }
 @media (max-width: 860px) { .ownnew { flex-direction: column; } }
+
+/* Vergrößern */
+.stage .zoom { position: absolute; right: 14px; bottom: 14px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(30,30,30,.5); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); color: #fff; display: grid; place-items: center; cursor: pointer; z-index: 2; opacity: .85; transition: opacity .15s, transform .15s; }
+.stage .zoom:hover { opacity: 1; transform: scale(1.06); }
+dialog.lightbox { border: 0; background: transparent; padding: 0; max-width: none; max-height: none; overflow: visible; color: #fff; }
+dialog.lightbox::backdrop { background: rgba(0,0,0,.82); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+dialog.lightbox .stage { width: min(94vw, calc(84vh * var(--ar))); border-radius: 14px; box-shadow: none; }
+.lbbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; }
+.lbbar a { color: #fff; font-size: 14px; }
+.lbbar .btn { background: rgba(255,255,255,.18); color: #fff; }
+
+/* Anweisung */
+.phint { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-top: 6px; }
+.phint .hint { margin: 0; flex: 1; min-width: 200px; }
+.plinks { display: flex; gap: 14px; flex-wrap: wrap; }
+.lnk { border: 0; background: none; color: var(--link); padding: 0; cursor: pointer; font-size: 13px; }
+.lnk:hover { text-decoration: underline; }
+#prompt { font-size: 14px; line-height: 1.5; }
+dialog.lightbox .compare:focus-within { outline: none; }
+dialog.lightbox:focus { outline: none; }
