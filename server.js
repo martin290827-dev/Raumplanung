@@ -133,6 +133,9 @@ function briefText(meta, lang) {
   if (meta.wishes) t += `${L.wish}: ${meta.wishes}\n`;
   if (meta.budget) { const n = parseBudget(meta.budget); t += `${L.budget}: ${meta.budget}${n > 0 ? ` (Obergrenze ${n} EUR)` : ''}\n`; }
   if (lang !== 'de' && !(parseBudget(meta.budget) > 0)) t += 'Budget: not given. Assume a mid-range budget: solid mid-priced furniture, neither cheap nor luxury.\n';
+  t += lang === 'de'
+    ? (meta.keep !== false ? 'Bestehende Möbel und Raumaufteilung bleiben erhalten: Plane um sie herum und schlage nur Ergänzungen und Umgestaltung ringsum vor.\n' : 'Bestehende Möbel dürfen ersetzt und der Raum darf neu aufgeteilt werden.\n')
+    : (meta.keep !== false ? 'Existing furniture and layout stay in place.\n' : 'Existing furniture may be replaced and the layout changed.\n');
   if ((meta.furniture || []).length) {
     const list = meta.furniture.map((f) => `${f.name}${f.note ? ' (' + f.note + ')' : ''}`).join('; ');
     t += lang === 'de'
@@ -408,7 +411,7 @@ async function handle(req, res) {
       id, title: String(b.title || '').trim().slice(0, 80) || 'Ohne Titel', room: ROOMS.includes(b.room) ? b.room : ROOMS[0],
       description: cleanText(b.description, 2000), problems: cleanText(b.problems, 2000), wishes: cleanText(b.wishes, 2000),
       budget: cleanText(b.budget, 80), style: STYLES.some((x) => x.id === b.style) ? b.style : '', createdAt: new Date().toISOString(),
-      photo: photoFile, width: +b.width || 0, height: +b.height || 0, redesigns: [],
+      keep: b.keep !== false, photo: photoFile, width: +b.width || 0, height: +b.height || 0, redesigns: [],
     };
     writeMeta(id, meta);
     return sendJson(res, 201, meta);
@@ -457,6 +460,7 @@ async function handle(req, res) {
       for (const [k, n] of Object.entries(BRIEF_FIELDS)) if (typeof b[k] === 'string' && cleanText(b[k], n) !== (meta[k] || '')) { meta[k] = cleanText(b[k], n); changed = true; }
       if (ROOMS.includes(b.room) && b.room !== meta.room) { meta.room = b.room; changed = true; }
       if (typeof b.style === 'string') { const st = STYLES.some((x) => x.id === b.style) ? b.style : ''; if (st !== (meta.style || '')) { meta.style = st; changed = true; } }
+      if (typeof b.keep === 'boolean' && b.keep !== (meta.keep !== false)) { meta.keep = b.keep; changed = true; }
       if (changed) meta.briefUpdatedAt = new Date().toISOString();
       writeMeta(id, meta); return sendJson(res, 200, meta);
     }

@@ -267,3 +267,5 @@ dialog.lightbox .stage { width: min(94vw, calc(84vh * var(--ar))); border-radius
 #prompt { font-size: 14px; line-height: 1.5; }
 dialog.lightbox .compare:focus-within { outline: none; }
 dialog.lightbox:focus { outline: none; }
+.opt .sub { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 1px; }
+.fields > .opt { margin: 2px 0 0; }

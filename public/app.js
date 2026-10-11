@@ -156,6 +156,7 @@ function showNew() {
         <label class="f">Budget (optional)<input id="budget" placeholder="z. B. 1500 EUR"></label>
         <label class="f">Stil (optional)<select id="nstyle"><option value="">Offen</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>
       </div>
+      <label class="opt"><span>Vorhandene Möbel und Raumaufteilung beibehalten<small class="sub">Aus: Ideen und Bild dürfen alles neu planen.</small></span><span class="switch"><input type="checkbox" id="keepNew" checked><i></i></span></label>
       <button class="btn primary" id="create" type="button" disabled>Ideen und Redesign erzeugen</button>
       <button class="btn" id="createOnly" type="button" disabled>Nur anlegen, ohne Ideen</button>
       <p class="hint">Claude bekommt Foto und alle Angaben, liefert sofort Ideen und daraus entsteht gleich das erste Redesign. Mit Budget richtet es sich danach, ohne Budget nimmt es mittlere Ausgaben. Kosten zusammen etwa 0,10 bis 0,15 USD (Schätzung). Alles lässt sich später ändern.</p>
@@ -186,7 +187,7 @@ function showNew() {
       const meta = await api('POST', '/api/projects', {
         photo: pending.dataUrl, width: pending.width, height: pending.height,
         title: $('#title').value, room: $('#room').value, description: $('#desc').value,
-        problems: $('#prob').value, wishes: $('#wish').value, budget: $('#budget').value, style: $('#nstyle').value,
+        problems: $('#prob').value, wishes: $('#wish').value, budget: $('#budget').value, style: $('#nstyle').value, keep: $('#keepNew').checked,
       });
       await refreshProjects();
       let ideas = null;
@@ -199,7 +200,7 @@ function showNew() {
         try {
           const sid = meta.style || '';
           let mid = store('model') || cfg.models[0].id; if (!cfg.models.some((m) => m.id === mid)) mid = cfg.models[0].id;
-          await api('POST', `/api/projects/${meta.id}/redesign`, { styleId: sid, modelId: mid, count: 1, conceptIndex: String(ci), wishes: '', keep: true, furnitureIdx: (cs[ci].moebel || []).map((_, i) => i), customPrompt: '' });
+          await api('POST', `/api/projects/${meta.id}/redesign`, { styleId: sid, modelId: mid, count: 1, conceptIndex: String(ci), wishes: '', keep: meta.keep !== false, furnitureIdx: (cs[ci].moebel || []).map((_, i) => i), customPrompt: '' });
           await refreshConfig();
         } catch (e) { rdErr = e.message; }
       }
@@ -228,7 +229,7 @@ async function openProject(id) {
   ui.styleId = cur.style || '';
   ui.modelId = ui.modelId || store('model') || cfg.models[0].id;
   if (!cfg.models.some((m) => m.id === ui.modelId)) ui.modelId = cfg.models[0].id;
-  ui.prompt = ''; ui.edited = false; ui.keep = true;
+  ui.prompt = ''; ui.edited = false; ui.keep = cur.keep !== false;
   const cs0 = (cur.ideas && cur.ideas.result && cur.ideas.result.konzepte) || [];
   const rc = recommendedConcept(cur, cs0);
   ui.concept = rc >= 0 ? String(rc) : '';
@@ -483,12 +484,12 @@ function renderBrief(edit) {
   const b = $('#brief'); if (!b) return;
   if (!edit) {
     const st = cfg.styles.find((x) => x.id === cur.style);
-    const rows = [['Raum', cur.room], ['Stil', st ? st.name : 'offen'], cur.budget && ['Budget', cur.budget],
+    const rows = [['Raum', cur.room], ['Stil', st ? st.name : 'offen'], cur.budget && ['Budget', cur.budget], ['Möbel', cur.keep !== false ? 'bleiben, Raumaufteilung bleibt' : 'dürfen ersetzt werden'],
       cur.description && ['Beschreibung', cur.description], cur.problems && ['Stört dich', cur.problems], cur.wishes && ['Wünsche', cur.wishes]].filter(Boolean);
     const stale = cur.ideas && cur.briefUpdatedAt && cur.briefUpdatedAt > cur.ideas.createdAt;
     b.innerHTML = `<div class="bh"><b>Deine Angaben</b><span class="hint">Sie fließen in Ideen, Bildanweisung und Redesign ein.</span><button class="btn small" id="editBrief" type="button">Bearbeiten</button></div>
       <dl class="facts brieff">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-      ${rows.length <= 2 ? '<p class="hint" style="margin:6px 0 0">Mit Beschreibung, Problemen und Wünschen werden Ideen und Redesign besser.</p>' : ''}
+      ${rows.length <= 3 ? '<p class="hint" style="margin:6px 0 0">Mit Beschreibung, Problemen und Wünschen werden Ideen und Redesign besser.</p>' : ''}
       ${stale ? '<p class="stale">Die Angaben wurden nach den letzten Ideen geändert. <button class="btn small" id="regen" type="button">Ideen neu erzeugen</button></p>' : ''}`;
     $('#editBrief').addEventListener('click', () => renderBrief(true));
     const rg = $('#regen'); if (rg) rg.addEventListener('click', doIdeas);
@@ -501,6 +502,7 @@ function renderBrief(edit) {
       <label class="f">Stil<select id="bStyle"><option value="">Offen</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}" ${x.id === cur.style ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
       <label class="f">Budget<input id="bBudget" value="${esc(cur.budget || '')}" placeholder="z. B. 1500 EUR"></label>
     </div>
+    <label class="opt"><span>Vorhandene Möbel und Raumaufteilung beibehalten</span><span class="switch"><input type="checkbox" id="bKeep" ${cur.keep !== false ? 'checked' : ''}><i></i></span></label>
     <label class="f">Beschreibung<textarea id="bDesc" rows="2">${esc(cur.description || '')}</textarea></label>
     <label class="f">Was stört dich?<textarea id="bProb" rows="3">${esc(cur.problems || '')}</textarea></label>
     <label class="f">Was wünschst du dir?<textarea id="bWish" rows="3">${esc(cur.wishes || '')}</textarea></label>
@@ -511,9 +513,9 @@ function renderBrief(edit) {
     try {
       const m = await api('PATCH', '/api/projects/' + cur.id, {
         title: $('#bTitle').value, room: $('#bRoom').value, style: $('#bStyle').value, budget: $('#bBudget').value,
-        description: $('#bDesc').value, problems: $('#bProb').value, wishes: $('#bWish').value,
+        description: $('#bDesc').value, problems: $('#bProb').value, wishes: $('#bWish').value, keep: $('#bKeep').checked,
       });
-      Object.assign(cur, { title: m.title, room: m.room, style: m.style, budget: m.budget, description: m.description, problems: m.problems, wishes: m.wishes, briefUpdatedAt: m.briefUpdatedAt });
+      ui.keep = m.keep !== false; Object.assign(cur, { keep: m.keep, title: m.title, room: m.room, style: m.style, budget: m.budget, description: m.description, problems: m.problems, wishes: m.wishes, briefUpdatedAt: m.briefUpdatedAt });
       await refreshProjects(); renderProject(); toast('Gespeichert');
     } catch (e) { $('#bErr').textContent = e.message; }
   });

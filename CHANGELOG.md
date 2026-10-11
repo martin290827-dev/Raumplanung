@@ -3,6 +3,11 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.7.2
+- "Vorhandene Möbel und Raumaufteilung beibehalten" steht jetzt schon im Formular "Neues Projekt" (standardmäßig an). Es gilt für die Ideen von Claude und für das erste Redesign
+- Die Einstellung wird im Projekt gespeichert, steht unter "Deine Angaben", ist dort änderbar und löst bei Änderung den Hinweis "Ideen neu erzeugen" aus
+- Claude bekommt die Einstellung für die Ideen: An bedeutet, er plant um die vorhandenen Möbel herum. Aus bedeutet, er darf alles neu planen
+
 ## 1.7.1
 - Stil "Offen (nach Konzept)" im Redesign. Hat ein Projekt keinen Stil, wählt das Bildmodell jetzt einen stimmigen Stil passend zum Konzept. Vorher war unbemerkt "Skandinavisch" voreingestellt und hat das erste Redesign beeinflusst
 - Nach "Ideen neu erzeugen" wird eine selbst bearbeitete Anweisung zurückgesetzt, weil sie zum alten Konzept gehörte

@@ -1,6 +1,6 @@
 {
   "name": "raumplanung",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Lokale Desktop-App: Raumfoto hochladen, KI-Redesigns und Möbel-/Raumideen erhalten. Daten bleiben auf dem eigenen Rechner.",
   "private": true,
   "scripts": { "start": "node server.js" },
