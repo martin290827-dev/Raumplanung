@@ -3,6 +3,12 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.8.1
+- Fehler "Claude hat kein gültiges JSON geliefert" behoben: Die App repariert kleine Formatfehler der Antwort selbst (Codeblock, überzählige Kommas)
+- Ist die Antwort trotzdem unbrauchbar oder abgeschnitten, wiederholt die App die Anfrage einmal automatisch mit mehr Spielraum. Das kostet nur dann zusätzlich etwa 0,05 USD
+- Claude bekommt die Anweisung, keine geraden Anführungszeichen in Texten zu verwenden (häufigste Ursache)
+- Bei einem Fehler steht der Rohtext in data/last-claude-error.txt und im Terminal eine Zeile dazu
+
 ## 1.8.0
 - Der Stil wird jetzt direkt im Bereich "Ideen von Claude" gewählt (Stilvorlagen oder "Offen"). Die Auswahl wird im Projekt gespeichert, Claude erzeugt die Ideen auf dieser Basis, und derselbe Stil gilt für das Redesign
 - Im Redesign-Bereich gibt es keine zweite Stilauswahl mehr, nur noch eine Zeile mit dem gewählten Stil. Das vermeidet doppelte Eingaben

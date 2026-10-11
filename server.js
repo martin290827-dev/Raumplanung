@@ -170,7 +170,8 @@ Schema:
  "schnelle_erfolge": ["genau 3 Maßnahmen unter 50 EUR, je höchstens 8 Wörter"],
  "hinweis": "höchstens 1 Satz zu Unsicherheiten"
 }
-Pro Konzept höchstens 5 Möbelstücke und höchstens 3 Farben.`;
+Pro Konzept höchstens 5 Möbelstücke und höchstens 3 Farben.
+Technisch: Gib gültiges JSON aus. In Textfeldern keine geraden Anführungszeichen (") und keine Zeilenumbrüche, nutze bei Bedarf ‚…‘. Keine Kommentare, keine Kommas vor schließenden Klammern.`;
 
 // Größte Zahl aus einem Budget-Text, z. B. "1.500 EUR" -> 1500, "1500 bis 2000" -> 2000. 0 = kein Budget.
 function parseBudget(str) {
@@ -205,13 +206,29 @@ async function callClaudeText(system, photo, userText, maxTokens = 6000) {
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw httpErr(502, 'Claude-API: ' + ((j.error && j.error.message) || r.status));
-  return (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  const text = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  callClaudeText.lastStop = j.stop_reason || '';
+  return text;
 }
-async function callClaude(photo, userText, system = IDEAS_SYSTEM) {
-  const text = await callClaudeText(system, photo, userText);
+// JSON aus der Claude-Antwort holen, mit kleinen Reparaturen (Codeblock, Komma vor Klammer, typografische Anführungszeichen als Trenner)
+function extractJson(text) {
   const a = text.indexOf('{'), b = text.lastIndexOf('}');
-  try { return JSON.parse(text.slice(a, b + 1)); }
-  catch { throw httpErr(502, 'Claude hat kein gültiges JSON geliefert. Bitte noch einmal versuchen.'); }
+  if (a < 0 || b <= a) return null;
+  const raw = text.slice(a, b + 1);
+  for (const cand of [raw, raw.replace(/,\s*([}\]])/g, '$1'), raw.replace(/,\s*([}\]])/g, '$1').replace(/[\u0000-\u001f]+/g, ' ')]) {
+    try { return JSON.parse(cand); } catch { /* nächster Versuch */ }
+  }
+  return null;
+}
+async function callClaude(photo, userText, system = IDEAS_SYSTEM, maxTokens = 7000) {
+  const text = await callClaudeText(system, photo, userText, maxTokens);
+  const stop = callClaudeText.lastStop;
+  const parsed = extractJson(text);
+  if (parsed) return parsed;
+  try { fs.writeFileSync(path.join(DATA, 'last-claude-error.txt'), `stop_reason: ${stop}\n\n${text}`); } catch { /* egal */ }
+  console.error(`Claude-Antwort nicht lesbar (stop_reason: ${stop}, ${text.length} Zeichen). Rohtext: data/last-claude-error.txt`);
+  const e = httpErr(502, stop === 'max_tokens' ? 'Claude-Antwort war zu lang und wurde abgeschnitten. Bitte noch einmal versuchen.' : 'Claude hat kein gültiges JSON geliefert. Bitte noch einmal versuchen.');
+  e.badJson = true; throw e;
 }
 
 const PROMPT_SYSTEM = `You write instructions for an AI image-editing model (it receives the photo plus your text). Look at the photo carefully.
@@ -471,8 +488,14 @@ async function handle(req, res) {
       const ext = path.extname(meta.photo).slice(1);
       const photo = { buf: fs.readFileSync(photoPath), mime: ext === 'jpg' ? 'image/jpeg' : 'image/' + ext };
       reserve(cfg.claudeCost);
-      let result;
-      try { result = await callClaude(photo, briefText(meta, 'de'), ideasSystem(meta)); } catch (e) { refund(cfg.claudeCost); throw e; }
+      let result, spent = cfg.claudeCost;
+      try { result = await callClaude(photo, briefText(meta, 'de'), ideasSystem(meta)); }
+      catch (e) {
+        if (!e.badJson) { refund(spent); throw e; }
+        // Einmal automatisch wiederholen (mit größerem Spielraum)
+        try { reserve(cfg.claudeCost); spent += cfg.claudeCost; result = await callClaude(photo, briefText(meta, 'de'), ideasSystem(meta), 10000); }
+        catch (e2) { refund(spent); throw e2; }
+      }
       const ideas = { createdAt: new Date().toISOString(), styleId: meta.style || null, budget: meta.budget || '', result };
       fs.writeFileSync(path.join(projDir(id), 'ideas.json'), JSON.stringify(ideas, null, 2));
       return sendJson(res, 200, ideas);
