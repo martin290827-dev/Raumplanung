@@ -144,13 +144,13 @@ Schema:
  "hinweis": "Unsicherheiten, fehlende Angaben"
 }`;
 
-async function callClaude(photo, userText) {
-  if (!cfg.claudeKey) throw httpErr(400, 'ANTHROPIC_API_KEY fehlt in der Datei .env.');
+async function callClaudeText(system, photo, userText, maxTokens = 6000) {
+  if (!cfg.claudeKey) throw httpErr(400, 'Der Claude-Schlüssel fehlt. Bitte unter Einstellungen eintragen.');
   const r = await fetch(cfg.claudeBase + '/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': cfg.claudeKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     body: JSON.stringify({
-      model: cfg.claudeModel, max_tokens: 6000, system: IDEAS_SYSTEM,
+      model: cfg.claudeModel, max_tokens: maxTokens, system,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: photo.mime, data: photo.buf.toString('base64') } },
         { type: 'text', text: userText },
@@ -159,11 +159,19 @@ async function callClaude(photo, userText) {
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw httpErr(502, 'Claude-API: ' + ((j.error && j.error.message) || r.status));
-  const text = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  return (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+}
+async function callClaude(photo, userText) {
+  const text = await callClaudeText(IDEAS_SYSTEM, photo, userText);
   const a = text.indexOf('{'), b = text.lastIndexOf('}');
   try { return JSON.parse(text.slice(a, b + 1)); }
   catch { throw httpErr(502, 'Claude hat kein gültiges JSON geliefert. Bitte noch einmal versuchen.'); }
 }
+
+const PROMPT_SYSTEM = `You write instructions for an AI image-editing model (it receives the photo plus your text). Look at the photo carefully.
+Write ONE prompt in English, 90 to 170 words, plain text only, no lists, no quotes, no preamble.
+Structure: (1) what must stay exactly as in the photo: walls, corners, windows, doors, radiators, floor, ceiling, camera angle and framing; (2) the concrete changes, each with position (left wall, right of the window, foreground, next to the door), approximate size, material and color; (3) light and mood.
+Rules: follow the owner's wishes literally and make them clearly visible. Use only the furniture pieces you are given plus small decor. Never invent room dimensions. If told to keep existing furniture, name the visible pieces and say they stay in place. No text, labels or watermarks in the image.`;
 
 // ---------- Atlas Cloud: Redesign ----------
 function pickAspect(model, w, h) {
@@ -177,15 +185,26 @@ function pickAspect(model, w, h) {
   }
   return { [model.aspect.param]: best };
 }
-function buildRedesignPrompt(style, meta, concept) {
-  let p = 'Redesign the interior shown in this photo. Keep the room architecture exactly as it is: same walls, windows, doors, ceiling height, floor area, camera angle and perspective. Change only furniture, decor, colors, materials and lighting. Photorealistic interior photograph, natural proportions, no text or watermark.';
+const PRESERVE = 'This is an edit of the existing photo, not a new image. Keep the room architecture exactly as it is: same walls, corners, windows, doors, radiators, ceiling, floor, camera angle, framing and perspective. Photorealistic interior photograph with natural proportions, no text or watermark.';
+function furnList(concept, idx) {
+  const all = (concept && concept.moebel) || [];
+  return (idx || []).map((i) => all[+i]).filter(Boolean)
+    .map((m) => `${m.name}${m.masse_cm ? ' (' + m.masse_cm + ' cm)' : ''}${m.platzierung ? ', ' + m.platzierung : ''}`);
+}
+function buildRedesignPrompt(style, meta, concept, o = {}) {
+  if (o.customPrompt) return PRESERVE + ' ' + o.customPrompt;
+  let p = PRESERVE;
+  if (o.keep) p += ' Keep the main existing furniture and the room layout where they are; restyle and add around them.';
+  else p += ' Change furniture, decor, colors, materials and lighting.';
   p += ` Room type: ${meta.room || 'room'}. Style: ${style.prompt}.`;
   if (meta.description) p += ` The owner wrote (German): "${meta.description}".`;
+  if (o.wishes) p += ` The owner's explicit wishes, which must be clearly visible in the result: "${o.wishes}".`;
   if (concept) {
     const farben = (concept.farben || []).map((f) => f.name).filter(Boolean).join(', ');
     const mat = (concept.materialien || []).join(', ');
-    const mob = (concept.moebel || []).map((m) => m.name).filter(Boolean).join(', ');
-    p += ` Follow this concept: ${concept.titel}. ${concept.idee || ''} Colors: ${farben}. Materials: ${mat}. Furniture: ${mob}.`;
+    p += ` Follow this concept: ${concept.titel}. ${concept.idee || ''} Colors: ${farben}. Materials: ${mat}.`;
+    const items = furnList(concept, o.furnitureIdx);
+    if (items.length) p += ` Include these pieces, placed as described: ${items.join('; ')}.`;
   }
   return p;
 }
@@ -336,7 +355,7 @@ async function handle(req, res) {
     return sendJson(res, 201, meta);
   }
 
-  let m = p.match(/^\/api\/projects\/([a-z0-9-]+)(?:\/(ideas|redesign))?$/);
+  let m = p.match(/^\/api\/projects\/([a-z0-9-]+)(?:\/(ideas|redesign|prompt))?$/);
   if (m) {
     const id = m[1], action = m[2];
     if (!action && req.method === 'GET') return sendJson(res, 200, { ...readMeta(id), ideas: readIdeas(id) });
@@ -367,6 +386,26 @@ async function handle(req, res) {
       return sendJson(res, 200, ideas);
     }
 
+    if (action === 'prompt' && req.method === 'POST') {
+      const b = await readJson(req); const meta = readMeta(id);
+      const style = STYLES.find((x) => x.id === b.styleId) || STYLES[0];
+      const ideas = readIdeas(id);
+      const concept = b.conceptIndex !== '' && b.conceptIndex != null ? ((ideas && ideas.result && ideas.result.konzepte) || [])[+b.conceptIndex] || null : null;
+      const ext = path.extname(meta.photo).slice(1);
+      const photo = { buf: fs.readFileSync(path.join(projDir(id), meta.photo)), mime: ext === 'jpg' ? 'image/jpeg' : 'image/' + ext };
+      let text = `Room type: ${meta.room}.\nOwner's description (German): ${meta.description || '(none)'}\nStyle: ${style.prompt}\n`;
+      if (b.wishes) text += `Owner's explicit wishes (German): ${String(b.wishes).slice(0, 1500)}\n`;
+      if (concept) text += `Concept: ${concept.titel}. ${concept.idee || ''} Colors: ${(concept.farben || []).map((f) => f.name).join(', ')}. Materials: ${(concept.materialien || []).join(', ')}.\n`;
+      const items = furnList(concept, b.furnitureIdx);
+      if (items.length) text += `Furniture to include (name, size, position): ${items.join('; ')}\n`;
+      text += b.keep ? 'Keep the existing main furniture and layout in place.\n' : 'Existing furniture may be replaced.\n';
+      reserve(cfg.claudeCost);
+      let out;
+      try { out = (await callClaudeText(PROMPT_SYSTEM, photo, text, 1200)).trim(); } catch (e) { refund(cfg.claudeCost); throw e; }
+      if (!out) { refund(cfg.claudeCost); throw httpErr(502, 'Claude hat keinen Prompt geliefert. Bitte noch einmal versuchen.'); }
+      return sendJson(res, 200, { prompt: out });
+    }
+
     if (action === 'redesign' && req.method === 'POST') {
       const b = await readJson(req); const meta = readMeta(id);
       const style = STYLES.find((s) => s.id === b.styleId) || STYLES[0];
@@ -378,7 +417,9 @@ async function handle(req, res) {
       }
       const ext = path.extname(meta.photo).slice(1);
       const dataUri = `data:${ext === 'jpg' ? 'image/jpeg' : 'image/' + ext};base64,` + fs.readFileSync(path.join(projDir(id), meta.photo)).toString('base64');
-      const prompt = buildRedesignPrompt(style, meta, concept);
+      const wishes = String(b.wishes || '').trim().slice(0, 1500);
+      const customPrompt = String(b.customPrompt || '').trim().slice(0, 4000);
+      const prompt = buildRedesignPrompt(style, meta, concept, { wishes, customPrompt, keep: b.keep !== false, furnitureIdx: Array.isArray(b.furnitureIdx) ? b.furnitureIdx.slice(0, 30) : [] });
       const aspect = pickAspect(model, meta.width, meta.height);
       const cost = model.preis * count;
       reserve(cost);
@@ -390,7 +431,7 @@ async function handle(req, res) {
       const ok = settled.filter((s) => s.status === 'fulfilled').map((s) => s.value);
       const failed = settled.filter((s) => s.status === 'rejected');
       if (failed.length) refund(model.preis * failed.length);
-      if (ok.length) { const fresh = readMeta(id); fresh.redesigns = (fresh.redesigns || []).concat(ok); writeMeta(id, fresh); }
+      if (ok.length) { const fresh = readMeta(id); fresh.redesigns = (fresh.redesigns || []).concat(ok); fresh.wishes = wishes; writeMeta(id, fresh); }
       if (!ok.length) throw failed[0].reason;
       return sendJson(res, 200, { added: ok, errors: failed.map((f) => f.reason.message) });
     }

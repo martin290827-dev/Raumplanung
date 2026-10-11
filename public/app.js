@@ -9,7 +9,7 @@ let projects = [];
 let cur = null;            // aktuelles Projekt (inkl. ideas)
 let shown = null;          // angezeigtes Redesign (Dateiname) oder null
 let pending = null;        // { dataUrl, width, height } im Formular "Neues Projekt"
-const ui = { styleId: null, modelId: null, count: 1, concept: '' };
+const ui = { styleId: null, modelId: null, count: 1, concept: '', wishes: '', customPrompt: '', keep: true, furn: new Set() };
 
 function store(k, v) { try { if (v === undefined) return localStorage.getItem('rp.' + k); localStorage.setItem('rp.' + k, v); } catch { return null; } }
 
@@ -135,6 +135,7 @@ async function openProject(id) {
   ui.modelId = ui.modelId || store('model') || cfg.models[0].id;
   if (!cfg.models.some((m) => m.id === ui.modelId)) ui.modelId = cfg.models[0].id;
   ui.concept = '';
+  ui.wishes = cur.wishes || ''; ui.customPrompt = ''; ui.keep = true; ui.furn = new Set();
   renderRail(); renderProject();
 }
 const fileUrl = (name) => `/files/${encodeURIComponent(cur.id)}/${encodeURIComponent(name)}`;
@@ -173,12 +174,22 @@ function renderProject() {
     <div class="chips" role="group" aria-label="Stilvorlage">${cfg.styles.map((s) => `
       <button type="button" class="chip" data-s="${esc(s.id)}" aria-pressed="${ui.styleId === s.id}">
         <span class="dots">${s.farben.map((c) => `<i style="background:${esc(c)}"></i>`).join('')}</span>${esc(s.name)}</button>`).join('')}</div>
+    <label class="f" style="margin-bottom:12px">Eigene Wünsche für das Bild (optional)
+      <textarea id="wishes" rows="3" placeholder="z. B. Schuhregal an der linken Wand, Garderobe mit 6 Haken, Sitzbank mit Stauraum. Die Kommode mit den Bildern bleibt.">${esc(ui.wishes)}</textarea>
+    </label>
+    <label class="opt"><input type="checkbox" id="keep" ${ui.keep ? 'checked' : ''}> Vorhandene Möbel und Raumaufteilung beibehalten</label>
     <div class="row">
       <label class="f">Modell<select id="model">${cfg.models.map((m) => `<option value="${esc(m.id)}" ${m.id === ui.modelId ? 'selected' : ''}>${esc(m.name)} (${m.preis.toFixed(3).replace('.', ',')} USD pro Bild)</option>`).join('')}</select></label>
       <label class="f">Anzahl<select id="count">${[1, 2, 3].map((n) => `<option ${n === ui.count ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="f">Nach Konzept<select id="concept"><option value="">Nur Stilvorlage</option>${concepts.map((c, i) => `<option value="${i}" ${String(i) === ui.concept ? 'selected' : ''}>${esc(c.titel)}</option>`).join('')}</select></label>
-      <button class="btn primary" id="go" type="button">Redesign erzeugen</button>
     </div>
+    <div id="furn" style="margin-top:14px"></div>
+    <div class="row" style="margin-top:6px"><button class="btn" id="suggest" type="button">Bildanweisung von Claude schreiben lassen</button></div>
+    <label class="f" id="pbox" style="margin-top:10px" ${ui.customPrompt ? '' : 'hidden'}>Anweisung an das Bildmodell (englisch, bearbeitbar)
+      <textarea id="cprompt" class="mono" rows="7">${esc(ui.customPrompt)}</textarea>
+      <span class="hint" style="font-weight:400">Ist dieses Feld gefüllt, wird es statt der automatischen Anweisung verwendet. Leer lassen für automatisch.</span>
+    </label>
+    <div class="row" style="margin-top:14px"><button class="btn primary" id="go" type="button">Redesign erzeugen</button></div>
     <p class="hint" id="cost"></p>
     <p class="err" id="rdErr"></p>
   </section>
@@ -211,7 +222,24 @@ function renderProject() {
   }));
   $('#model').addEventListener('change', (e) => { ui.modelId = e.target.value; store('model', ui.modelId); upd(); });
   $('#count').addEventListener('change', (e) => { ui.count = +e.target.value; upd(); });
-  $('#concept').addEventListener('change', (e) => { ui.concept = e.target.value; });
+  const furnReset = () => {
+    const c = concepts[ui.concept === '' ? -1 : +ui.concept];
+    ui.furn = new Set(c ? (c.moebel || []).map((_, i) => i) : []);
+  };
+  const renderFurn = () => {
+    const c = concepts[ui.concept === '' ? -1 : +ui.concept];
+    const box = $('#furn');
+    if (!c || !(c.moebel || []).length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<fieldset class="furnsel"><legend>Möbel aus dem Konzept im Bild einbauen</legend>${c.moebel.map((m, i) =>
+      `<label><input type="checkbox" data-i="${i}" ${ui.furn.has(i) ? 'checked' : ''}><span><b>${esc(m.name)}</b> <span class="hint">${esc(m.platzierung)}</span></span></label>`).join('')}</fieldset>`;
+    box.querySelectorAll('input').forEach((inp) => inp.addEventListener('change', () => { if (inp.checked) ui.furn.add(+inp.dataset.i); else ui.furn.delete(+inp.dataset.i); }));
+  };
+  $('#concept').addEventListener('change', (e) => { ui.concept = e.target.value; furnReset(); renderFurn(); });
+  $('#wishes').addEventListener('input', (e) => { ui.wishes = e.target.value; });
+  $('#keep').addEventListener('change', (e) => { ui.keep = e.target.checked; });
+  $('#cprompt').addEventListener('input', (e) => { ui.customPrompt = e.target.value; });
+  $('#suggest').addEventListener('click', doSuggest);
+  renderFurn();
   $('#go').addEventListener('click', doRedesign);
   $('#ideasBtn').addEventListener('click', doIdeas);
   const rng = $('#cmpRange');
@@ -221,10 +249,19 @@ function renderProject() {
   }
 }
 
+async function doSuggest() {
+  const btn = $('#suggest'); btn.disabled = true; btn.classList.add('busy'); $('#rdErr').textContent = '';
+  try {
+    const out = await api('POST', `/api/projects/${cur.id}/prompt`, { styleId: ui.styleId, conceptIndex: ui.concept, wishes: ui.wishes, keep: ui.keep, furnitureIdx: [...ui.furn] });
+    ui.customPrompt = out.prompt; $('#cprompt').value = out.prompt; $('#pbox').hidden = false;
+    await refreshConfig(); toast('Anweisung geschrieben. Du kannst sie ändern.');
+  } catch (e) { $('#rdErr').textContent = e.message; refreshConfig(); }
+  btn.disabled = false; btn.classList.remove('busy');
+}
 async function doRedesign() {
   const btn = $('#go'); btn.disabled = true; btn.classList.add('busy'); $('#rdErr').textContent = '';
   try {
-    const out = await api('POST', `/api/projects/${cur.id}/redesign`, { styleId: ui.styleId, modelId: ui.modelId, count: ui.count, conceptIndex: ui.concept });
+    const out = await api('POST', `/api/projects/${cur.id}/redesign`, { styleId: ui.styleId, modelId: ui.modelId, count: ui.count, conceptIndex: ui.concept, wishes: ui.wishes, keep: ui.keep, furnitureIdx: [...ui.furn], customPrompt: ui.customPrompt });
     const keepIdeas = cur.ideas; cur = await api('GET', '/api/projects/' + cur.id); cur.ideas = cur.ideas || keepIdeas;
     shown = out.added[out.added.length - 1].file;
     await Promise.all([refreshConfig(), refreshProjects()]); renderProject();
@@ -237,6 +274,7 @@ async function doIdeas() {
   const btn = $('#ideasBtn'); btn.disabled = true; btn.classList.add('busy'); $('#ideasErr').textContent = '';
   try {
     cur.ideas = await api('POST', `/api/projects/${cur.id}/ideas`, { styleId: ui.styleId, budget: $('#budget').value, notes: $('#notes').value });
+    ui.concept = ''; ui.furn = new Set();
     await refreshConfig(); renderProject(); toast('Ideen gespeichert');
   } catch (e) { $('#ideasErr').textContent = e.message; btn.disabled = false; btn.classList.remove('busy'); refreshConfig(); }
 }

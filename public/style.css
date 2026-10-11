@@ -125,3 +125,11 @@ label.f textarea { min-height: 120px; resize: vertical; }
 .settings { max-width: 640px; }
 .settings h2 { font-size: 28px; margin-bottom: 8px; }
 .settings .panel label.f input { width: 100%; }
+
+[hidden] { display: none !important; }
+.furnsel { border: 1px solid var(--linie); border-radius: 8px; padding: 10px 14px; margin: 0 0 14px; display: grid; gap: 6px; }
+.furnsel legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
+.furnsel label { display: flex; gap: 8px; align-items: baseline; }
+.furnsel .hint { margin: 0; }
+.opt { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+textarea.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; line-height: 1.45; }
