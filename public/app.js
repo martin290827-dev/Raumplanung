@@ -38,7 +38,7 @@ let projects = [];
 let cur = null;            // aktuelles Projekt (inkl. ideas)
 let shown = null;          // angezeigtes Redesign (Dateiname) oder null
 let pending = null;        // { dataUrl, width, height } im Formular "Neues Projekt"
-const ui = { styleId: null, modelId: null, count: 1, concept: '', wishes: '', customPrompt: '', keep: true, furn: new Set() };
+const ui = { styleId: null, modelId: null, count: 1, concept: '', wishes: '', customPrompt: '', keep: true, furn: new Set(), own: new Set() };
 
 function store(k, v) { try { if (v === undefined) return localStorage.getItem('rp.' + k); localStorage.setItem('rp.' + k, v); } catch { return null; } }
 
@@ -55,11 +55,11 @@ function toast(msg, bad) {
 }
 
 // Bild in ein Canvas laden, auf max. 2048 px verkleinern, als JPEG ausgeben.
-function decodeImage(blob) {
+function decodeImage(blob, maxDim = 2048) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob); const img = new Image();
     img.onload = () => {
-      const s = Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight));
+      const s = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
       const w = Math.round(img.naturalWidth * s), h = Math.round(img.naturalHeight * s);
       const c = document.createElement('canvas'); c.width = w; c.height = h;
       c.getContext('2d').drawImage(img, 0, 0, w, h); URL.revokeObjectURL(url);
@@ -70,15 +70,15 @@ function decodeImage(blob) {
   });
 }
 // Erst der Browser (JPEG, PNG, WebP, GIF, AVIF, BMP). Sonst wandelt der lokale Server um (HEIC, TIFF und mehr).
-async function readPhoto(file) {
-  try { return await decodeImage(file); } catch { /* weiter mit Server-Umwandlung */ }
+async function readPhoto(file, maxDim = 2048) {
+  try { return await decodeImage(file, maxDim); } catch { /* weiter mit Server-Umwandlung */ }
   const ext = (file.name.match(/\.([A-Za-z0-9]{2,5})$/) || [])[1] || 'img';
   let r;
   try { r = await fetch('/api/convert?ext=' + encodeURIComponent(ext), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file }); }
   catch { throw new Error('Der lokale Server ist nicht erreichbar.'); }
   if (r.status === 404) throw new Error('Der Server läuft noch in einer älteren Version. Im Terminal Strg+C drücken, start.command neu starten und die Seite neu laden.');
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Das Bild konnte nicht gelesen werden.'); }
-  try { return await decodeImage(await r.blob()); }
+  try { return await decodeImage(await r.blob(), maxDim); }
   catch { throw new Error('Das Bild konnte nicht gelesen werden. Bitte als JPEG oder PNG exportieren.'); }
 }
 
@@ -233,6 +233,7 @@ async function openProject(id) {
   const rc = recommendedConcept(cur, cs0);
   ui.concept = rc >= 0 ? String(rc) : '';
   ui.furn = new Set(rc >= 0 ? (cs0[rc].moebel || []).map((_, i) => i) : []);
+  ui.own = new Set((cur.furniture || []).map((f) => f.id));
   renderRail(); renderProject();
 }
 const fileUrl = (name) => `/files/${encodeURIComponent(cur.id)}/${encodeURIComponent(name)}`;
@@ -290,6 +291,7 @@ function renderProject() {
       <label class="f">Nach Konzept<select id="concept"><option value="">Nur Stilvorlage</option>${concepts.map((c, i) => `<option value="${i}" ${String(i) === ui.concept ? 'selected' : ''}>${esc(c.titel)}</option>`).join('')}</select></label>
     </div>
     <div id="furn" style="margin-top:14px"></div>
+    <div id="own" class="own"></div>
     <div class="row" style="margin-top:6px"><button class="btn" id="suggest" type="button">Bildanweisung von Claude schreiben lassen</button></div>
     <label class="f" id="pbox" style="margin-top:10px" ${ui.customPrompt ? '' : 'hidden'}>Anweisung an das Bildmodell (englisch, bearbeitbar)
       <textarea id="cprompt" class="mono" rows="7">${esc(ui.customPrompt)}</textarea>
@@ -314,7 +316,7 @@ function renderProject() {
     ui.styleId = b.dataset.s; store('style', ui.styleId);
     document.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
   }));
-  $('#model').addEventListener('change', (e) => { ui.modelId = e.target.value; store('model', ui.modelId); upd(); });
+  $('#model').addEventListener('change', (e) => { ui.modelId = e.target.value; store('model', ui.modelId); upd(); renderOwn(); });
   document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => {
     ui.count = +b.dataset.n; document.querySelectorAll('.seg button').forEach((x) => x.setAttribute('aria-checked', String(x === b))); upd();
   }));
@@ -335,7 +337,7 @@ function renderProject() {
   $('#keep').addEventListener('change', (e) => { ui.keep = e.target.checked; });
   $('#cprompt').addEventListener('input', (e) => { ui.customPrompt = e.target.value; });
   $('#suggest').addEventListener('click', doSuggest);
-  renderFurn();
+  renderFurn(); renderOwn();
   document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => {
     ui.concept = b.dataset.pick; furnReset(); $('#concept').value = ui.concept; renderFurn();
     toast('Konzept gewählt. Unten das Redesign erzeugen.'); $('#redesignPanel').scrollIntoView();
@@ -349,6 +351,50 @@ function renderProject() {
   }
 }
 
+function renderOwn(adding) {
+  const box = $('#own'); if (!box) return;
+  const fl = cur.furniture || [];
+  const m = cfg.models.find((x) => x.id === ui.modelId);
+  const warn = fl.length && m && (m.maxImages || 5) < 2 ? `<p class="err">${esc(m.name)} kann nur ein Bild verarbeiten. Für eigene Möbel Nano Banana 2 oder Seedream 4.5 wählen.</p>` : '';
+  const sel = fl.filter((f) => ui.own.has(f.id)).length;
+  box.innerHTML = `<div class="ownh"><b>Eigene Möbel einbauen</b><button class="btn small" id="ownAdd" type="button">Foto hinzufügen</button></div>
+    <input type="file" id="ownFile" accept="image/*,.heic,.heif,.tif,.tiff,.avif,.bmp" hidden>
+    ${fl.length ? `<ul class="ownl">${fl.map((f) => `<li>
+      <label class="ownc"><input type="checkbox" data-o="${esc(f.id)}" ${ui.own.has(f.id) ? 'checked' : ''}>
+      <img src="${fileUrl(f.file)}" alt="${esc(f.name)}"><span><b>${esc(f.name)}</b>${f.note ? `<br><span class="hint">${esc(f.note)}</span>` : ''}</span></label>
+      <button type="button" class="x" data-od="${esc(f.id)}" aria-label="${esc(f.name)} entfernen" title="Entfernen">×</button></li>`).join('')}</ul>` : '<p class="hint">Lade Fotos von Möbeln hoch, die du schon hast oder kaufen willst (am besten freigestellt auf hellem Hintergrund). Die KI baut genau diese Stücke ins Redesign ein.</p>'}
+    ${sel > 4 ? '<p class="hint">Es werden höchstens 4 Stücke pro Bild verwendet.</p>' : ''}${warn}
+    <div id="ownForm"></div>`;
+  $('#ownAdd').addEventListener('click', () => $('#ownFile').click());
+  $('#ownFile').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try { const ph = await readPhoto(f, 1024); showOwnForm(ph, f.name.replace(/\.[^.]+$/, '')); } catch (er) { toast(er.message, true); }
+  });
+  box.querySelectorAll('[data-o]').forEach((c) => c.addEventListener('change', () => { if (c.checked) ui.own.add(c.dataset.o); else ui.own.delete(c.dataset.o); }));
+  box.querySelectorAll('[data-od]').forEach((b) => b.addEventListener('click', async () => {
+    if (!(await askConfirm('Dieses Möbelstück entfernen?', 'Entfernen'))) return;
+    try { const r = await api('DELETE', `/api/projects/${cur.id}/furniture/${b.dataset.od}`); cur.furniture = r.furniture; ui.own.delete(b.dataset.od); renderOwn(); }
+    catch (er) { toast(er.message, true); }
+  }));
+}
+function showOwnForm(ph, guess) {
+  const f = $('#ownForm');
+  f.innerHTML = `<div class="ownnew"><img src="${ph.dataUrl}" alt="Vorschau">
+    <div class="ownfs"><label class="f">Name<input id="oName" maxlength="80" placeholder="z. B. Sofa grau, 3-Sitzer" value="${esc(guess.length > 2 && guess.length < 40 && !/^(img|dsc|image|photo)/i.test(guess) ? guess : '')}"></label>
+    <label class="f">Wohin damit? (optional)<input id="oNote" maxlength="200" placeholder="z. B. an die linke Wand unter das Fenster"></label>
+    <div class="row"><button class="btn primary small" id="oSave" type="button">Hinzufügen</button><button class="btn small" id="oCancel" type="button">Abbrechen</button></div>
+    <p class="err" id="oErr"></p></div></div>`;
+  $('#oName').focus();
+  $('#oCancel').addEventListener('click', () => { f.innerHTML = ''; });
+  $('#oSave').addEventListener('click', async () => {
+    const b = $('#oSave'); b.disabled = true;
+    try {
+      const r = await api('POST', `/api/projects/${cur.id}/furniture`, { photo: ph.dataUrl, name: $('#oName').value, note: $('#oNote').value });
+      const added = r.furniture.find((x) => !(cur.furniture || []).some((y) => y.id === x.id));
+      cur.furniture = r.furniture; if (added) ui.own.add(added.id); renderOwn(); toast('Möbelstück hinzugefügt');
+    } catch (er) { $('#oErr').textContent = er.message; b.disabled = false; }
+  });
+}
 async function doSuggest() {
   const btn = $('#suggest'); btn.disabled = true; btn.classList.add('busy'); $('#rdErr').textContent = '';
   try {
@@ -361,7 +407,7 @@ async function doSuggest() {
 async function doRedesign() {
   const btn = $('#go'); btn.disabled = true; btn.classList.add('busy'); $('#rdErr').textContent = '';
   try {
-    const out = await api('POST', `/api/projects/${cur.id}/redesign`, { styleId: ui.styleId, modelId: ui.modelId, count: ui.count, conceptIndex: ui.concept, wishes: ui.wishes, keep: ui.keep, furnitureIdx: [...ui.furn], customPrompt: ui.customPrompt });
+    const out = await api('POST', `/api/projects/${cur.id}/redesign`, { styleId: ui.styleId, modelId: ui.modelId, count: ui.count, conceptIndex: ui.concept, wishes: ui.wishes, keep: ui.keep, furnitureIdx: [...ui.furn], ownIds: [...ui.own], customPrompt: ui.customPrompt });
     const keepIdeas = cur.ideas; cur = await api('GET', '/api/projects/' + cur.id); cur.ideas = cur.ideas || keepIdeas;
     shown = out.added[out.added.length - 1].file;
     await Promise.all([refreshConfig(), refreshProjects()]); renderProject();

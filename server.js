@@ -133,6 +133,12 @@ function briefText(meta, lang) {
   if (meta.wishes) t += `${L.wish}: ${meta.wishes}\n`;
   if (meta.budget) { const n = parseBudget(meta.budget); t += `${L.budget}: ${meta.budget}${n > 0 ? ` (Obergrenze ${n} EUR)` : ''}\n`; }
   if (lang !== 'de' && !(parseBudget(meta.budget) > 0)) t += 'Budget: not given. Assume a mid-range budget: solid mid-priced furniture, neither cheap nor luxury.\n';
+  if ((meta.furniture || []).length) {
+    const list = meta.furniture.map((f) => `${f.name}${f.note ? ' (' + f.note + ')' : ''}`).join('; ');
+    t += lang === 'de'
+      ? `Eigene Möbel des Nutzers (bereits vorhanden oder gekauft, werden fest eingebaut, zählen nicht zum Budget): ${list}. Plane den Raum um diese Stücke herum und schlage keine ähnlichen vor.\n`
+      : `The owner's own pieces (will be placed in the room, do not replace them): ${list}.\n`;
+  }
   if (style) t += `${L.style}: ${lang === 'de' ? style.name : style.prompt}.\n`; else if (L.open) t += L.open + '\n';
   return t;
 }
@@ -228,6 +234,12 @@ function furnList(concept, idx) {
   return (idx || []).map((i) => all[+i]).filter(Boolean)
     .map((m) => `${m.name}${m.masse_cm ? ' (' + m.masse_cm + ' cm)' : ''}${m.platzierung ? ', ' + m.platzierung : ''}`);
 }
+const MAX_OWN = 4;
+function ownRefs(own) {
+  return `Image 1 is the room photo to edit. The other images are reference photos of the owner's own furniture: ` +
+    own.map((f, i) => `image ${i + 2} shows "${f.name}"${f.note ? ` (placement wish, German: ${f.note})` : ''}`).join('; ') +
+    '. Place each of these exact pieces into the room of image 1, copy its shape, color, material and proportions faithfully, scale it realistically to the room and do not redesign it. Do not copy the background of the reference photos.';
+}
 function buildRedesignPrompt(style, meta, concept, o = {}) {
   if (o.customPrompt) return PRESERVE + ' ' + o.customPrompt;
   let p = PRESERVE;
@@ -249,10 +261,10 @@ function buildRedesignPrompt(style, meta, concept, o = {}) {
   }
   return p;
 }
-async function atlasGenerate(model, prompt, dataUri, aspect) {
+async function atlasGenerate(model, prompt, dataUris, aspect) {
   if (!cfg.atlasKey) throw httpErr(400, 'ATLASCLOUD_API_KEY fehlt in der Datei .env.');
   const headers = { Authorization: 'Bearer ' + cfg.atlasKey, 'Content-Type': 'application/json' };
-  const body = { model: model.id, prompt, [model.imageField]: [dataUri], ...(model.extra || {}), ...aspect };
+  const body = { model: model.id, prompt, [model.imageField]: [].concat(dataUris), ...(model.extra || {}), ...aspect };
   const r = await fetch(cfg.atlasBase + '/generateImage', { method: 'POST', headers, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || (j.code && j.code !== 200)) {
@@ -363,7 +375,7 @@ async function handle(req, res) {
     const u = readUsage();
     return sendJson(res, 200, {
       styles: STYLES, rooms: ROOMS,
-      models: MODELS.map((m) => ({ id: m.id, name: m.name, preis: m.preis })),
+      models: MODELS.map((m) => ({ id: m.id, name: m.name, preis: m.preis, maxImages: m.maxImages || 5 })),
       budget: { used: u.usd, limit: cfg.dailyLimit },
       claude: { ok: !!cfg.claudeKey, model: cfg.claudeModel }, atlas: { ok: !!cfg.atlasKey },
       version: VERSION,
@@ -405,6 +417,29 @@ async function handle(req, res) {
     writeMeta(m[1], meta);
     fs.rmSync(path.join(projDir(m[1]), m[2]), { force: true });
     return sendJson(res, 200, { ok: true });
+  }
+  m = p.match(/^\/api\/projects\/([a-z0-9-]+)\/furniture$/);
+  if (m && req.method === 'POST') {
+    const b = await readJson(req); const meta = readMeta(m[1]);
+    if ((meta.furniture || []).length >= 12) throw httpErr(400, 'Es sind höchstens 12 eigene Möbelstücke pro Projekt möglich.');
+    const img = parseDataUrl(b.photo);
+    const name = cleanText(b.name, 80); if (!name) throw httpErr(400, 'Bitte einen Namen für das Möbelstück angeben.');
+    const fid = crypto.randomBytes(3).toString('hex');
+    const file = `own-${fid}.${img.ext}`;
+    fs.writeFileSync(path.join(projDir(m[1]), file), img.buf);
+    const fresh = readMeta(m[1]);
+    fresh.furniture = (fresh.furniture || []).concat([{ id: fid, file, name, note: cleanText(b.note, 200) }]);
+    fresh.briefUpdatedAt = new Date().toISOString();
+    writeMeta(m[1], fresh);
+    return sendJson(res, 201, { furniture: fresh.furniture });
+  }
+  m = p.match(/^\/api\/projects\/([a-z0-9-]+)\/furniture\/([a-f0-9]{6})$/);
+  if (m && req.method === 'DELETE') {
+    const meta = readMeta(m[1]); const f = (meta.furniture || []).find((x) => x.id === m[2]);
+    if (!f) throw httpErr(404, 'Möbelstück nicht gefunden.');
+    meta.furniture = meta.furniture.filter((x) => x.id !== m[2]); meta.briefUpdatedAt = new Date().toISOString();
+    writeMeta(m[1], meta); fs.rmSync(path.join(projDir(m[1]), f.file), { force: true });
+    return sendJson(res, 200, { furniture: meta.furniture });
   }
   m = p.match(/^\/api\/projects\/([a-z0-9-]+)(?:\/(ideas|redesign|prompt))?$/);
   if (m) {
@@ -467,12 +502,23 @@ async function handle(req, res) {
       const dataUri = `data:${ext === 'jpg' ? 'image/jpeg' : 'image/' + ext};base64,` + fs.readFileSync(path.join(projDir(id), meta.photo)).toString('base64');
       const wishes = String(b.wishes || '').trim().slice(0, 1500);
       const customPrompt = String(b.customPrompt || '').trim().slice(0, 4000);
-      const prompt = buildRedesignPrompt(style, meta, concept, { wishes, customPrompt, keep: b.keep !== false, furnitureIdx: Array.isArray(b.furnitureIdx) ? b.furnitureIdx.slice(0, 30) : [] });
+      let prompt = buildRedesignPrompt(style, meta, concept, { wishes, customPrompt, keep: b.keep !== false, furnitureIdx: Array.isArray(b.furnitureIdx) ? b.furnitureIdx.slice(0, 30) : [] });
+      const wantOwn = Array.isArray(b.ownIds) ? b.ownIds : [];
+      const own = (meta.furniture || []).filter((f) => wantOwn.includes(f.id)).slice(0, MAX_OWN);
+      const uris = [dataUri];
+      if (own.length) {
+        if ((model.maxImages || 5) < own.length + 1) throw httpErr(400, `${model.name} kann nur ${model.maxImages} Bild verarbeiten, also kein eigenes Möbelstück. Bitte Nano Banana 2 oder Seedream 4.5 wählen.`);
+        own.forEach((f) => {
+          const e = path.extname(f.file).slice(1);
+          uris.push(`data:${e === 'jpg' ? 'image/jpeg' : 'image/' + e};base64,` + fs.readFileSync(path.join(projDir(id), f.file)).toString('base64'));
+        });
+        prompt = ownRefs(own) + ' ' + prompt;
+      }
       const aspect = pickAspect(model, meta.width, meta.height);
       const cost = model.preis * count;
       reserve(cost);
       const settled = await Promise.allSettled(Array.from({ length: count }, async (_, n) => {
-        const url = await atlasGenerate(model, prompt, dataUri, aspect);
+        const url = await atlasGenerate(model, prompt, uris, aspect);
         const file = await downloadTo(url, projDir(id), `redesign-${Date.now().toString(36)}-${n}`);
         return { file, modelId: model.id, model: model.name, styleId: style.id, style: style.name, concept: concept ? concept.titel : null, prompt, createdAt: new Date().toISOString() };
       }));

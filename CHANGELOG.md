@@ -3,6 +3,12 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.6.0
+- Eigene Möbel: Im Redesign-Bereich Fotos von Möbelstücken hochladen (Name und Platzwunsch dazu). Das Bildmodell bekommt Raumfoto und Möbelfotos und baut genau diese Stücke ein
+- Eigene Möbel sind pro Bild an- und abwählbar (bis zu 4 gleichzeitig) und lassen sich entfernen
+- Claude kennt die eigenen Möbel bei den Ideen (er plant um sie herum, sie zählen nicht zum Budget) und in der Bildanweisung
+- Nur mit Nano Banana 2 und Seedream 4.5, Grok Imagine verarbeitet nur ein Bild und zeigt einen Hinweis
+
 ## 1.5.0
 - Beim Anlegen entsteht nach den Ideen gleich das erste Redesign (Button "Ideen und Redesign erzeugen")
 - Das Redesign richtet sich nach dem Budget: Mit Budget wird das Konzept genommen, das es am besten ausnutzt, ohne es zu überschreiten. Ohne Budget gilt das mittlere Konzept mit mittlerem Preisniveau, nicht billig und nicht Luxus

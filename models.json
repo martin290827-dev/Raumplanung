@@ -4,6 +4,6 @@
    "extra":{"resolution":"1k"}},
   {"id":"bytedance/seedream-v4.5/edit","name":"Seedream 4.5","preis":0.036,"imageField":"images",
    "aspect":{"param":"size","values":["2048*2048","2304*1728","1728*2304","2848*1600","1600*2848","2496*1664","1664*2496","3136*1344"]}},
-  {"id":"xai/grok-imagine-image/edit","name":"Grok Imagine (günstig)","preis":0.02,"imageField":"image_urls",
+  {"id":"xai/grok-imagine-image/edit","name":"Grok Imagine (günstig)","preis":0.02,"imageField":"image_urls","maxImages":1,
    "extra":{"aspect_ratio":"auto","resolution":"1k"}}
 ]
