@@ -117,10 +117,18 @@ function showNew() {
       <span id="dropText">Foto des Raums oder Platzes hierher ziehen, einfügen (Cmd+V) oder klicken<br><small>JPEG, PNG, HEIC (iPhone), WebP, TIFF und mehr</small></span>
     </label>
     <div class="fields">
-      <label class="f">Titel<input id="title" maxlength="80" placeholder="z. B. Wohnzimmer Graz"></label>
+      <label class="f">Projektname<input id="title" maxlength="80" placeholder="z. B. Vorraum Graz"></label>
       <label class="f">Art des Raums<select id="room">${cfg.rooms.map((r) => `<option>${esc(r)}</option>`).join('')}</select></label>
-      <label class="f">Kurzbeschreibung<textarea id="desc" placeholder="Was soll der Raum können? Was stört dich? Maße, falls bekannt (z. B. 4 × 5 m, Raumhöhe 2,6 m)."></textarea></label>
-      <button class="btn primary" id="create" type="button" disabled>Projekt anlegen</button>
+      <label class="f">Beschreibung<textarea id="desc" rows="2" placeholder="Was ist das für ein Raum? Maße, falls bekannt (z. B. 2 × 3 m, Raumhöhe 2,6 m)."></textarea></label>
+      <label class="f">Was stört dich?<textarea id="prob" rows="3" placeholder="z. B. zu viele Schuhe, kein Platz für Jacken, wirkt dunkel und unruhig."></textarea></label>
+      <label class="f">Was wünschst du dir?<textarea id="wish" rows="3" placeholder="z. B. Garderobe mit 6 Haken, Sitzbank zum Schuhe anziehen, mehr Ordnung."></textarea></label>
+      <div class="row">
+        <label class="f">Budget (optional)<input id="budget" placeholder="z. B. 1500 EUR"></label>
+        <label class="f">Stil (optional)<select id="nstyle"><option value="">Offen (Claude wählt)</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>
+      </div>
+      <button class="btn primary" id="create" type="button" disabled>Ideen von Claude holen</button>
+      <button class="btn" id="createOnly" type="button" disabled>Nur anlegen, ohne Ideen</button>
+      <p class="hint">Claude bekommt Foto und alle Angaben und liefert sofort Ideen (etwa 0,05 USD, Schätzung). Alles lässt sich später ändern.</p>
       <p class="hint" id="newErr"></p>
     </div>
   </section>`;
@@ -130,7 +138,7 @@ function showNew() {
     try {
       pending = await readPhoto(f);
       drop.innerHTML = `<img src="${pending.dataUrl}" alt="Vorschau des Fotos">`;
-      $('#create').disabled = false; $('#newErr').textContent = '';
+      $('#create').disabled = false; $('#createOnly').disabled = false; $('#newErr').textContent = '';
     } catch (e) { toast(e.message, true); }
   };
   drop.addEventListener('click', (e) => { if (e.target.tagName !== 'INPUT') file.click(); });
@@ -139,17 +147,28 @@ function showNew() {
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); take(e.dataTransfer.files[0]); });
-  $('#create').addEventListener('click', async () => {
-    const btn = $('#create'); btn.disabled = true; btn.classList.add('busy');
+  const create = async (withIdeas) => {
+    const b1 = $('#create'), b2 = $('#createOnly'); b1.disabled = b2.disabled = true; $('#newErr').textContent = '';
+    const main = withIdeas ? b1 : b2; main.classList.add('busy');
+    if (withIdeas) b1.textContent = 'Claude analysiert das Foto';
+    let ideaErr = '';
     try {
       const meta = await api('POST', '/api/projects', {
         photo: pending.dataUrl, width: pending.width, height: pending.height,
         title: $('#title').value, room: $('#room').value, description: $('#desc').value,
+        problems: $('#prob').value, wishes: $('#wish').value, budget: $('#budget').value, style: $('#nstyle').value,
       });
-      await refreshProjects(); await openProject(meta.id);
-    } catch (e) { $('#newErr').textContent = e.message; $('#newErr').className = 'err'; btn.disabled = false; }
-    btn.classList.remove('busy');
-  });
+      await refreshProjects();
+      if (withIdeas) { try { await api('POST', `/api/projects/${meta.id}/ideas`, {}); await refreshConfig(); } catch (e) { ideaErr = e.message; } }
+      await openProject(meta.id);
+      if (ideaErr) toast('Projekt angelegt, aber die Ideen fehlen: ' + ideaErr, true);
+    } catch (e) {
+      $('#newErr').textContent = e.message; $('#newErr').className = 'err';
+      b1.disabled = b2.disabled = false; b1.textContent = 'Ideen von Claude holen'; main.classList.remove('busy');
+    }
+  };
+  $('#create').addEventListener('click', () => create(true));
+  $('#createOnly').addEventListener('click', () => create(false));
 }
 document.addEventListener('paste', (e) => {
   const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
@@ -161,11 +180,11 @@ async function openProject(id) {
   try { cur = await api('GET', '/api/projects/' + id); } catch (e) { return toast(e.message, true); }
   const last = (cur.redesigns || []).slice(-1)[0];
   shown = last ? last.file : null;
-  ui.styleId = ui.styleId || store('style') || cfg.styles[0].id;
+  ui.styleId = cur.style || store('style') || cfg.styles[0].id;
   ui.modelId = ui.modelId || store('model') || cfg.models[0].id;
   if (!cfg.models.some((m) => m.id === ui.modelId)) ui.modelId = cfg.models[0].id;
   ui.concept = '';
-  ui.wishes = cur.wishes || ''; ui.customPrompt = ''; ui.keep = true; ui.furn = new Set();
+  ui.wishes = ''; ui.customPrompt = ''; ui.keep = true; ui.furn = new Set();
   renderRail(); renderProject();
 }
 const fileUrl = (name) => `/files/${encodeURIComponent(cur.id)}/${encodeURIComponent(name)}`;
@@ -190,6 +209,7 @@ function renderProject() {
   <div class="phead">
     <h2>${esc(cur.title)}</h2>
     <span class="meta">${esc(cur.room)} · ${new Date(cur.createdAt).toLocaleDateString('de-AT')}</span>
+    <button class="btn small" id="rename" type="button">Umbenennen</button>
     <button class="btn small danger" id="del" type="button">Projekt löschen</button>
   </div>
   <div class="brief" id="brief"></div>
@@ -201,12 +221,8 @@ function renderProject() {
 
   <section class="panel">
     <h3>Ideen von Claude</h3>
-    <div class="row">
-      <label class="f">Budget (optional)<input id="budget" placeholder="z. B. 1500 EUR" value="${esc(cur.ideas?.budget || '')}"></label>
-      <label class="f" style="flex:1;min-width:220px">Zusätzliche Wünsche (optional)<input id="notes" placeholder="z. B. Platz für Homeoffice, Katze, wenig Stauraum"></label>
-      <button class="btn primary" id="ideasBtn" type="button">${cur.ideas ? 'Ideen neu erzeugen' : 'Ideen von Claude holen'}</button>
-    </div>
-    <p class="hint">Claude berücksichtigt: Foto, Raumtyp, deine Beschreibung (oben), den gewählten Stil, Budget und Zusatzwünsche. Maße sind Schätzungen vom Foto.</p>
+    <div class="row"><button class="btn primary" id="ideasBtn" type="button">${cur.ideas ? 'Ideen neu erzeugen' : 'Ideen von Claude holen'}</button></div>
+    <p class="hint">Claude nutzt das Foto und deine Angaben oben: Beschreibung, was dich stört, Wünsche, Budget und Stil. Kosten etwa 0,05 USD. Maße sind Schätzungen vom Foto.</p>
     <p class="err" id="ideasErr"></p>
     <div id="ideas">${cur.ideas ? ideasHTML(cur.ideas.result) : ''}</div>
   </section>
@@ -216,8 +232,8 @@ function renderProject() {
     <div class="chips" role="group" aria-label="Stilvorlage">${cfg.styles.map((s) => `
       <button type="button" class="chip" data-s="${esc(s.id)}" aria-pressed="${ui.styleId === s.id}">
         <span class="dots">${s.farben.map((c) => `<i style="background:${esc(c)}"></i>`).join('')}</span>${esc(s.name)}</button>`).join('')}</div>
-    <label class="f" style="margin-bottom:12px">Eigene Wünsche für das Bild (optional)
-      <textarea id="wishes" rows="3" placeholder="z. B. Schuhregal an der linken Wand, Garderobe mit 6 Haken, Sitzbank mit Stauraum. Die Kommode mit den Bildern bleibt.">${esc(ui.wishes)}</textarea>
+    <label class="f" style="margin-bottom:12px">Zusätzlich für dieses Bild (optional)
+      <textarea id="wishes" rows="3" placeholder="Gilt nur für diese Bildrunde, z. B. Die Kommode mit den Bildern bleibt. Spiegel über dem Schuhregal.">${esc(ui.wishes)}</textarea>
     </label>
     <label class="opt"><input type="checkbox" id="keep" ${ui.keep ? 'checked' : ''}> Vorhandene Möbel und Raumaufteilung beibehalten</label>
     <div class="row">
@@ -244,6 +260,7 @@ function renderProject() {
   $('#del').addEventListener('click', () => deleteProject(cur.id));
   const di = $('#delImg'); if (di) di.addEventListener('click', () => deleteRedesign(shown));
   renderBrief(false);
+  $('#rename').addEventListener('click', () => { renderBrief(true); $('#brief').scrollIntoView(); $('#bTitle').focus(); });
   $('#thumbs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { shown = b.dataset.f || null; renderProject(); }));
   document.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', () => {
     ui.styleId = b.dataset.s; store('style', ui.styleId);
@@ -306,7 +323,7 @@ async function doRedesign() {
 async function doIdeas() {
   const btn = $('#ideasBtn'); btn.disabled = true; btn.classList.add('busy'); $('#ideasErr').textContent = '';
   try {
-    cur.ideas = await api('POST', `/api/projects/${cur.id}/ideas`, { styleId: ui.styleId, budget: $('#budget').value, notes: $('#notes').value });
+    cur.ideas = await api('POST', `/api/projects/${cur.id}/ideas`, {});
     ui.concept = ''; ui.furn = new Set();
     await refreshConfig(); renderProject(); toast('Ideen gespeichert');
   } catch (e) { $('#ideasErr').textContent = e.message; btn.disabled = false; btn.classList.remove('busy'); refreshConfig(); }
@@ -315,21 +332,39 @@ async function doIdeas() {
 function renderBrief(edit) {
   const b = $('#brief'); if (!b) return;
   if (!edit) {
-    b.innerHTML = `<div class="bh"><b>Deine Beschreibung</b><span class="hint">Raumtyp: ${esc(cur.room)}. Sie fließt in Ideen und Redesign ein.</span><button class="btn small" id="editBrief" type="button">Bearbeiten</button></div>
-      <p class="bt">${cur.description ? esc(cur.description) : '<span class="hint">Noch keine Beschreibung. Mit Beschreibung werden Ideen und Redesign besser.</span>'}</p>`;
+    const st = cfg.styles.find((x) => x.id === cur.style);
+    const rows = [['Raum', cur.room], ['Stil', st ? st.name : 'offen'], cur.budget && ['Budget', cur.budget],
+      cur.description && ['Beschreibung', cur.description], cur.problems && ['Stört dich', cur.problems], cur.wishes && ['Wünsche', cur.wishes]].filter(Boolean);
+    const stale = cur.ideas && cur.briefUpdatedAt && cur.briefUpdatedAt > cur.ideas.createdAt;
+    b.innerHTML = `<div class="bh"><b>Deine Angaben</b><span class="hint">Sie fließen in Ideen, Bildanweisung und Redesign ein.</span><button class="btn small" id="editBrief" type="button">Bearbeiten</button></div>
+      <dl class="facts brieff">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+      ${rows.length <= 2 ? '<p class="hint" style="margin:6px 0 0">Mit Beschreibung, Problemen und Wünschen werden Ideen und Redesign besser.</p>' : ''}
+      ${stale ? '<p class="stale">Die Angaben wurden nach den letzten Ideen geändert. <button class="btn small" id="regen" type="button">Ideen neu erzeugen</button></p>' : ''}`;
     $('#editBrief').addEventListener('click', () => renderBrief(true));
+    const rg = $('#regen'); if (rg) rg.addEventListener('click', doIdeas);
     return;
   }
-  b.innerHTML = `<label class="f">Art des Raums<select id="bRoom">${cfg.rooms.map((r) => `<option ${r === cur.room ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
-    <label class="f" style="margin-top:8px">Beschreibung<textarea id="bDesc" rows="4">${esc(cur.description || '')}</textarea></label>
-    <div class="row" style="margin-top:8px"><button class="btn primary small" id="bSave" type="button">Speichern</button><button class="btn small" id="bCancel" type="button">Abbrechen</button></div>
-    <p class="err" id="bErr"></p>`;
+  b.innerHTML = `<div class="bform">
+    <label class="f">Projektname<input id="bTitle" maxlength="80" value="${esc(cur.title)}"></label>
+    <div class="row">
+      <label class="f">Art des Raums<select id="bRoom">${cfg.rooms.map((r) => `<option ${r === cur.room ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
+      <label class="f">Stil<select id="bStyle"><option value="">Offen (Claude wählt)</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}" ${x.id === cur.style ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label class="f">Budget<input id="bBudget" value="${esc(cur.budget || '')}" placeholder="z. B. 1500 EUR"></label>
+    </div>
+    <label class="f">Beschreibung<textarea id="bDesc" rows="2">${esc(cur.description || '')}</textarea></label>
+    <label class="f">Was stört dich?<textarea id="bProb" rows="3">${esc(cur.problems || '')}</textarea></label>
+    <label class="f">Was wünschst du dir?<textarea id="bWish" rows="3">${esc(cur.wishes || '')}</textarea></label>
+    <div class="row"><button class="btn primary small" id="bSave" type="button">Speichern</button><button class="btn small" id="bCancel" type="button">Abbrechen</button></div>
+    <p class="err" id="bErr"></p></div>`;
   $('#bCancel').addEventListener('click', () => renderBrief(false));
   $('#bSave').addEventListener('click', async () => {
     try {
-      const m = await api('PATCH', '/api/projects/' + cur.id, { room: $('#bRoom').value, description: $('#bDesc').value });
-      cur.room = m.room; cur.description = m.description; await refreshProjects();
-      renderProject(); toast(cur.ideas ? 'Gespeichert. Ideen neu erzeugen, damit sie die Änderung berücksichtigen.' : 'Gespeichert');
+      const m = await api('PATCH', '/api/projects/' + cur.id, {
+        title: $('#bTitle').value, room: $('#bRoom').value, style: $('#bStyle').value, budget: $('#bBudget').value,
+        description: $('#bDesc').value, problems: $('#bProb').value, wishes: $('#bWish').value,
+      });
+      Object.assign(cur, { title: m.title, room: m.room, style: m.style, budget: m.budget, description: m.description, problems: m.problems, wishes: m.wishes, briefUpdatedAt: m.briefUpdatedAt });
+      await refreshProjects(); renderProject(); toast('Gespeichert');
     } catch (e) { $('#bErr').textContent = e.message; }
   });
 }

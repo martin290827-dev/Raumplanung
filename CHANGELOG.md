@@ -3,6 +3,14 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.3.0
+- Projektname ist änderbar (Button "Umbenennen" oder unter "Deine Angaben")
+- Neues Projekt fragt vorab: Beschreibung, was dich stört, Wünsche, Budget und Stil (optional). "Ideen von Claude holen" legt das Projekt an und liefert sofort die Ideen
+- Alle Angaben stehen im Kasten "Deine Angaben", sind jederzeit änderbar und fließen in Ideen, Bildanweisung und Redesign ein
+- Hinweis mit Button, wenn die Angaben nach den letzten Ideen geändert wurden
+- Stil ist bei den Ideen jetzt optional (vorher war immer "Skandinavisch" voreingestellt); Redesign startet mit dem Stil des Projekts
+- Das Feld im Redesign heißt jetzt "Zusätzlich für dieses Bild" und gilt nur für diese Bildrunde
+
 ## 1.2.0
 - Projekte löschen: Kreuz in der Projektliste und Button im Projekt, mit eigener Rückfrage in der App (keine Browser-Dialoge mehr)
 - Einzelne Redesign-Bilder löschen

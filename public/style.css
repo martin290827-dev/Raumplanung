@@ -169,3 +169,12 @@ dialog.confirm p { margin: 0 0 16px; }
 .furn.compact li { padding: 5px 0; border-bottom: 1px solid var(--linie); }
 .furn.compact .mm { color: var(--tinte-2); font-size: 13.5px; }
 .furn.compact .hint { margin: 0; display: inline; }
+
+.brieff { margin: 8px 0 0; } .brieff dd { white-space: pre-wrap; max-width: 80ch; }
+.stale { margin: 8px 0 0; padding: 8px 12px; border-left: 3px solid var(--kobalt); background: var(--putz); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.bform { display: grid; gap: 10px; }
+.bform .row label.f { flex: 1; min-width: 150px; }
+.bform input, .bform select, .bform textarea { border: 1px solid var(--linie); background: var(--papier); border-radius: 6px; padding: 8px 10px; font-weight: 400; }
+.new .row { display: flex; gap: 12px; } .new .row label.f { flex: 1; }
+.new .fields > .btn { align-self: flex-start; }
+.new label.f textarea, .bform textarea { min-height: 0; }

@@ -122,12 +122,29 @@ function listProjects() {
     .map((m) => ({ id: m.id, title: m.title, room: m.room, createdAt: m.createdAt, photo: m.photo, redesigns: (m.redesigns || []).length }));
 }
 
+// Angaben des Nutzers (Briefing) aus Projekt-Metadaten, als Text für Claude
+function briefText(meta, lang) {
+  const style = STYLES.find((x) => x.id === meta.style);
+  const L = lang === 'de'
+    ? { room: 'Raumtyp', desc: 'Beschreibung des Nutzers', prob: 'Das stört den Nutzer', wish: 'Das wünscht sich der Nutzer', budget: 'Budget', style: 'Gewünschte Stilrichtung', open: 'Stilrichtung: offen, schlage passende vor.', none: '(keine)' }
+    : { room: 'Room type', desc: "Owner's description (German)", prob: 'Problems the owner wants solved (German)', wish: "Owner's wishes (German)", budget: 'Budget', style: 'Style', open: '', none: '(none)' };
+  let t = `${L.room}: ${meta.room}.\n${L.desc}: ${meta.description || L.none}\n`;
+  if (meta.problems) t += `${L.prob}: ${meta.problems}\n`;
+  if (meta.wishes) t += `${L.wish}: ${meta.wishes}\n`;
+  if (meta.budget) t += `${L.budget}: ${meta.budget}\n`;
+  if (style) t += `${L.style}: ${lang === 'de' ? style.name : style.prompt}.\n`; else if (L.open) t += L.open + '\n';
+  return t;
+}
+const cleanText = (v, n) => String(v || '').trim().slice(0, n);
+const BRIEF_FIELDS = { description: 2000, problems: 2000, wishes: 2000, budget: 80 };
+
 // ---------- Claude: Ideen ----------
 const IDEAS_SYSTEM = `Du bist ein erfahrener Innenarchitekt und Raumplaner. Du siehst ein Foto eines Raums oder Platzes und bekommst eine kurze Beschreibung des Nutzers. Berücksichtige die Beschreibung ausdrücklich.
 Antworte ausschließlich mit einem einzigen JSON-Objekt, ohne Text davor oder danach, auf Deutsch, in einfacher, klarer, KOMPAKTER Sprache.
 Regeln:
 - Alle Maße sind Schätzungen aus dem Foto. Nenne sie in cm. Wenn der Nutzer Maße nennt, haben diese Vorrang.
 - Erfinde keine Marken- oder Produktnamen mit Preisen. Gib einen guten deutschen Suchbegriff für den Möbelkauf an und einen groben Preisrahmen in EUR.
+- Die Angaben des Nutzers haben Vorrang: Beschreibung, was ihn stört, seine Wünsche, Budget und Stil. Jedes Konzept muss die genannten Probleme lösen und die Wünsche erfüllen. Sage im Feld "idee" kurz, wie. Nenne ein Budget, das zum Budget des Nutzers passt, falls er eins nennt.
 - Liefere 3 deutlich verschiedene Konzepte (zum Beispiel: sparsam und schnell, ausgewogen, mutig).
 - Fasse dich kurz: Das ist eine Übersicht, kein Aufsatz.
 Schema:
@@ -199,7 +216,9 @@ function buildRedesignPrompt(style, meta, concept, o = {}) {
   else p += ' Change furniture, decor, colors, materials and lighting.';
   p += ` Room type: ${meta.room || 'room'}. Style: ${style.prompt}.`;
   if (meta.description) p += ` The owner wrote (German): "${meta.description}".`;
-  if (o.wishes) p += ` The owner's explicit wishes, which must be clearly visible in the result: "${o.wishes}".`;
+  if (meta.problems) p += ` Problems the owner wants solved (German): "${meta.problems}".`;
+  if (meta.wishes) p += ` The owner's wishes, which must be clearly visible in the result (German): "${meta.wishes}".`;
+  if (o.wishes) p += ` Extra instruction for this image: "${o.wishes}".`;
   if (concept) {
     const farben = (concept.farben || []).map((f) => f.name).filter(Boolean).join(', ');
     const mat = (concept.materialien || []).join(', ');
@@ -349,7 +368,8 @@ async function handle(req, res) {
     fs.writeFileSync(path.join(dir, photoFile), photo.buf);
     const meta = {
       id, title: String(b.title || '').trim().slice(0, 80) || 'Ohne Titel', room: ROOMS.includes(b.room) ? b.room : ROOMS[0],
-      description: String(b.description || '').slice(0, 2000), createdAt: new Date().toISOString(),
+      description: cleanText(b.description, 2000), problems: cleanText(b.problems, 2000), wishes: cleanText(b.wishes, 2000),
+      budget: cleanText(b.budget, 80), style: STYLES.some((x) => x.id === b.style) ? b.style : '', createdAt: new Date().toISOString(),
       photo: photoFile, width: +b.width || 0, height: +b.height || 0, redesigns: [],
     };
     writeMeta(id, meta);
@@ -371,27 +391,24 @@ async function handle(req, res) {
     if (!action && req.method === 'GET') return sendJson(res, 200, { ...readMeta(id), ideas: readIdeas(id) });
     if (!action && req.method === 'DELETE') { readMeta(id); fs.rmSync(projDir(id), { recursive: true, force: true }); return sendJson(res, 200, { ok: true }); }
     if (!action && req.method === 'PATCH') {
-      const b = await readJson(req); const meta = readMeta(id);
+      const b = await readJson(req); const meta = readMeta(id); let changed = false;
       if (typeof b.title === 'string') meta.title = b.title.trim().slice(0, 80) || meta.title;
-      if (typeof b.description === 'string') meta.description = b.description.slice(0, 2000);
-      if (ROOMS.includes(b.room)) meta.room = b.room;
+      for (const [k, n] of Object.entries(BRIEF_FIELDS)) if (typeof b[k] === 'string' && cleanText(b[k], n) !== (meta[k] || '')) { meta[k] = cleanText(b[k], n); changed = true; }
+      if (ROOMS.includes(b.room) && b.room !== meta.room) { meta.room = b.room; changed = true; }
+      if (typeof b.style === 'string') { const st = STYLES.some((x) => x.id === b.style) ? b.style : ''; if (st !== (meta.style || '')) { meta.style = st; changed = true; } }
+      if (changed) meta.briefUpdatedAt = new Date().toISOString();
       writeMeta(id, meta); return sendJson(res, 200, meta);
     }
 
     if (action === 'ideas' && req.method === 'POST') {
-      const b = await readJson(req); const meta = readMeta(id);
-      const style = STYLES.find((s) => s.id === b.styleId);
+      const meta = readMeta(id);
       const photoPath = path.join(projDir(id), meta.photo);
       const ext = path.extname(meta.photo).slice(1);
       const photo = { buf: fs.readFileSync(photoPath), mime: ext === 'jpg' ? 'image/jpeg' : 'image/' + ext };
-      let text = `Raumtyp: ${meta.room}.\nBeschreibung des Nutzers: ${meta.description || '(keine)'}\n`;
-      if (style) text += `Gewünschte Stilrichtung: ${style.name}.\n`;
-      if (b.budget) text += `Budget: ${String(b.budget).slice(0, 60)}.\n`;
-      if (b.notes) text += `Zusätzliche Wünsche: ${String(b.notes).slice(0, 500)}\n`;
       reserve(cfg.claudeCost);
       let result;
-      try { result = await callClaude(photo, text); } catch (e) { refund(cfg.claudeCost); throw e; }
-      const ideas = { createdAt: new Date().toISOString(), styleId: style ? style.id : null, budget: b.budget || '', result };
+      try { result = await callClaude(photo, briefText(meta, 'de')); } catch (e) { refund(cfg.claudeCost); throw e; }
+      const ideas = { createdAt: new Date().toISOString(), styleId: meta.style || null, budget: meta.budget || '', result };
       fs.writeFileSync(path.join(projDir(id), 'ideas.json'), JSON.stringify(ideas, null, 2));
       return sendJson(res, 200, ideas);
     }
@@ -403,8 +420,8 @@ async function handle(req, res) {
       const concept = b.conceptIndex !== '' && b.conceptIndex != null ? ((ideas && ideas.result && ideas.result.konzepte) || [])[+b.conceptIndex] || null : null;
       const ext = path.extname(meta.photo).slice(1);
       const photo = { buf: fs.readFileSync(path.join(projDir(id), meta.photo)), mime: ext === 'jpg' ? 'image/jpeg' : 'image/' + ext };
-      let text = `Room type: ${meta.room}.\nOwner's description (German): ${meta.description || '(none)'}\nStyle: ${style.prompt}\n`;
-      if (b.wishes) text += `Owner's explicit wishes (German): ${String(b.wishes).slice(0, 1500)}\n`;
+      let text = briefText({ ...meta, style: style.id }, 'en');
+      if (b.wishes) text += `Extra instruction for this image (German): ${String(b.wishes).slice(0, 1500)}\n`;
       if (concept) text += `Concept: ${concept.titel}. ${concept.idee || ''} Colors: ${(concept.farben || []).map((f) => f.name).join(', ')}. Materials: ${(concept.materialien || []).join(', ')}.\n`;
       const items = furnList(concept, b.furnitureIdx);
       if (items.length) text += `Furniture to include (name, size, position): ${items.join('; ')}\n`;
@@ -441,7 +458,7 @@ async function handle(req, res) {
       const ok = settled.filter((s) => s.status === 'fulfilled').map((s) => s.value);
       const failed = settled.filter((s) => s.status === 'rejected');
       if (failed.length) refund(model.preis * failed.length);
-      if (ok.length) { const fresh = readMeta(id); fresh.redesigns = (fresh.redesigns || []).concat(ok); fresh.wishes = wishes; writeMeta(id, fresh); }
+      if (ok.length) { const fresh = readMeta(id); fresh.redesigns = (fresh.redesigns || []).concat(ok); writeMeta(id, fresh); }
       if (!ok.length) throw failed[0].reason;
       return sendJson(res, 200, { added: ok, errors: failed.map((f) => f.reason.message) });
     }
