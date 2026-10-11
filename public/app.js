@@ -154,12 +154,12 @@ function showNew() {
       <label class="f">Was wünschst du dir?<textarea id="wish" rows="3" placeholder="z. B. Garderobe mit 6 Haken, Sitzbank zum Schuhe anziehen, mehr Ordnung."></textarea></label>
       <div class="row">
         <label class="f">Budget (optional)<input id="budget" placeholder="z. B. 1500 EUR"></label>
-        <label class="f">Stil (optional)<select id="nstyle"><option value="">Offen (Claude wählt)</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>
+        <label class="f">Stil (optional)<select id="nstyle"><option value="">Offen</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>
       </div>
       <button class="btn primary" id="create" type="button" disabled>Ideen und Redesign erzeugen</button>
       <button class="btn" id="createOnly" type="button" disabled>Nur anlegen, ohne Ideen</button>
       <p class="hint">Claude bekommt Foto und alle Angaben, liefert sofort Ideen und daraus entsteht gleich das erste Redesign. Mit Budget richtet es sich danach, ohne Budget nimmt es mittlere Ausgaben. Kosten zusammen etwa 0,10 bis 0,15 USD (Schätzung). Alles lässt sich später ändern.</p>
-      <p class="hint" id="newErr"></p>
+      <p class="hint" id="newErr">Zuerst ein Foto auswählen, dann werden die Knöpfe aktiv.</p>
     </div>
   </section>`;
   const drop = $('#drop'), file = $('#file');
@@ -168,7 +168,7 @@ function showNew() {
     try {
       pending = await readPhoto(f);
       drop.innerHTML = `<img src="${pending.dataUrl}" alt="Vorschau des Fotos">`;
-      $('#create').disabled = false; $('#createOnly').disabled = false; $('#newErr').textContent = '';
+      $('#create').disabled = false; $('#createOnly').disabled = false; $('#newErr').textContent = ''; $('#newErr').className = 'hint';
     } catch (e) { toast(e.message, true); }
   };
   drop.addEventListener('click', (e) => { if (e.target.tagName !== 'INPUT') file.click(); });
@@ -197,7 +197,7 @@ function showNew() {
       if (ci >= 0) {
         b1.textContent = 'Redesign wird erzeugt';
         try {
-          const sid = meta.style || store('style') || cfg.styles[0].id;
+          const sid = meta.style || '';
           let mid = store('model') || cfg.models[0].id; if (!cfg.models.some((m) => m.id === mid)) mid = cfg.models[0].id;
           await api('POST', `/api/projects/${meta.id}/redesign`, { styleId: sid, modelId: mid, count: 1, conceptIndex: String(ci), wishes: '', keep: true, furnitureIdx: (cs[ci].moebel || []).map((_, i) => i), customPrompt: '' });
           await refreshConfig();
@@ -225,7 +225,7 @@ async function openProject(id) {
   try { cur = await api('GET', '/api/projects/' + id); } catch (e) { return toast(e.message, true); }
   const last = (cur.redesigns || []).slice(-1)[0];
   shown = last ? last.file : null;
-  ui.styleId = cur.style || store('style') || cfg.styles[0].id;
+  ui.styleId = cur.style || '';
   ui.modelId = ui.modelId || store('model') || cfg.models[0].id;
   if (!cfg.models.some((m) => m.id === ui.modelId)) ui.modelId = cfg.models[0].id;
   ui.prompt = ''; ui.edited = false; ui.keep = true;
@@ -294,7 +294,7 @@ function renderProject() {
   <section class="panel" id="redesignPanel">
     <h3>Redesign aus dem Foto</h3>
     <div class="f" style="margin-bottom:6px"><span>Stil</span></div>
-    <div class="chips" role="group" aria-label="Stilvorlage">${cfg.styles.map((s) => `
+    <div class="chips" role="group" aria-label="Stilvorlage"><button type="button" class="chip" data-s="" aria-pressed="${ui.styleId === ''}">Offen (nach Konzept)</button>${cfg.styles.map((s) => `
       <button type="button" class="chip" data-s="${esc(s.id)}" aria-pressed="${ui.styleId === s.id}">
         <span class="dots">${s.farben.map((c) => `<i style="background:${esc(c)}"></i>`).join('')}</span>${esc(s.name)}</button>`).join('')}</div>
     <label class="f">Konzept<select id="concept"><option value="">Kein Konzept, nur Stil</option>${concepts.map((c, i) => `<option value="${i}" ${String(i) === ui.concept ? 'selected' : ''}>${esc(c.titel)}${i === recommendedConcept(cur, concepts) ? ' (empfohlen)' : ''}</option>`).join('')}</select></label>
@@ -326,7 +326,7 @@ function renderProject() {
   $('#rename').addEventListener('click', () => { renderBrief(true); $('#brief').scrollIntoView(); $('#bTitle').focus(); });
   $('#thumbs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { shown = b.dataset.f || null; renderProject(); }));
   document.querySelectorAll('.chip').forEach((b) => b.addEventListener('click', () => {
-    ui.styleId = b.dataset.s; store('style', ui.styleId);
+    ui.styleId = b.dataset.s;
     document.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
   }));
   $('#model').addEventListener('change', (e) => { ui.modelId = e.target.value; store('model', ui.modelId); upd(); renderOwn(); });
@@ -471,7 +471,7 @@ async function doIdeas() {
     cur.ideas = await api('POST', `/api/projects/${cur.id}/ideas`, {});
     const cs1 = (cur.ideas.result && cur.ideas.result.konzepte) || [];
     const rc1 = recommendedConcept(cur, cs1);
-    ui.concept = rc1 >= 0 ? String(rc1) : ''; ui.furn = new Set(rc1 >= 0 ? (cs1[rc1].moebel || []).map((_, i) => i) : []);
+    ui.concept = rc1 >= 0 ? String(rc1) : ''; ui.furn = new Set(rc1 >= 0 ? (cs1[rc1].moebel || []).map((_, i) => i) : []); ui.edited = false;
     clearInterval(timer); await refreshConfig(); renderProject(); toast('Ideen gespeichert');
   } catch (e) {
     clearInterval(timer); if (wait) wait.textContent = '';
@@ -498,7 +498,7 @@ function renderBrief(edit) {
     <label class="f">Projektname<input id="bTitle" maxlength="80" value="${esc(cur.title)}"></label>
     <div class="row">
       <label class="f">Art des Raums<select id="bRoom">${cfg.rooms.map((r) => `<option ${r === cur.room ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
-      <label class="f">Stil<select id="bStyle"><option value="">Offen (Claude wählt)</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}" ${x.id === cur.style ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label class="f">Stil<select id="bStyle"><option value="">Offen</option>${cfg.styles.map((x) => `<option value="${esc(x.id)}" ${x.id === cur.style ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
       <label class="f">Budget<input id="bBudget" value="${esc(cur.budget || '')}" placeholder="z. B. 1500 EUR"></label>
     </div>
     <label class="f">Beschreibung<textarea id="bDesc" rows="2">${esc(cur.description || '')}</textarea></label>

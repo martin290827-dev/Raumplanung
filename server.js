@@ -234,6 +234,7 @@ function furnList(concept, idx) {
   return (idx || []).map((i) => all[+i]).filter(Boolean)
     .map((m) => `${m.name}${m.masse_cm ? ' (' + m.masse_cm + ' cm)' : ''}${m.platzierung ? ', ' + m.platzierung : ''}`);
 }
+const OPEN_STYLE = { id: '', name: 'Offen', prompt: 'no fixed style: follow the concept and the owner\'s instructions and choose one coherent, tasteful style that fits the room', farben: [] };
 const MAX_OWN = 4;
 function ownRefs(own) {
   return `Image 1 is the room photo to edit. The other images are reference photos of the owner's own furniture: ` +
@@ -475,7 +476,7 @@ async function handle(req, res) {
 
     if (action === 'prompt' && req.method === 'POST') {
       const b = await readJson(req); const meta = readMeta(id);
-      const style = STYLES.find((x) => x.id === b.styleId) || STYLES[0];
+      const style = STYLES.find((x) => x.id === b.styleId) || OPEN_STYLE;
       const ideas = readIdeas(id);
       const concept = b.conceptIndex !== '' && b.conceptIndex != null ? ((ideas && ideas.result && ideas.result.konzepte) || [])[+b.conceptIndex] || null : null;
       const ext = path.extname(meta.photo).slice(1);
@@ -495,7 +496,7 @@ async function handle(req, res) {
 
     if (action === 'redesign' && req.method === 'POST') {
       const b = await readJson(req); const meta = readMeta(id);
-      const style = STYLES.find((s) => s.id === b.styleId) || STYLES[0];
+      const style = STYLES.find((s) => s.id === b.styleId) || OPEN_STYLE;
       const model = MODELS.find((x) => x.id === b.modelId) || MODELS[0];
       const count = Math.min(3, Math.max(1, parseInt(b.count, 10) || 1));
       let concept = null;

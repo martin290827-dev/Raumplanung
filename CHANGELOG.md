@@ -3,6 +3,11 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.7.1
+- Stil "Offen (nach Konzept)" im Redesign. Hat ein Projekt keinen Stil, wählt das Bildmodell jetzt einen stimmigen Stil passend zum Konzept. Vorher war unbemerkt "Skandinavisch" voreingestellt und hat das erste Redesign beeinflusst
+- Nach "Ideen neu erzeugen" wird eine selbst bearbeitete Anweisung zurückgesetzt, weil sie zum alten Konzept gehörte
+- Neues Projekt: Hinweis, dass zuerst ein Foto nötig ist; Stilfeld kürzer beschriftet
+
 ## 1.7.0
 - Redesign-Bereich aufgeräumt: Stil, Konzept (mit Möbeln und eigenen Möbeln), eine Anweisung, dann Schalter, Modell, Anzahl
 - Es gibt nur noch EIN Textfeld "Anweisung an das Bildmodell" (vorher zwei: "Zusätzlich" und die Anweisung). Es ist auf Deutsch, füllt sich automatisch aus Angaben, Konzept, gewählten Möbeln und eigenen Möbeln und ist jederzeit frei änderbar. "Automatisch neu erstellen" setzt zurück, "Von Claude formulieren lassen" lässt Claude einen Text schreiben
