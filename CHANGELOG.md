@@ -3,6 +3,10 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.6.2
+- Die Bildanweisung, die Claude schreibt, ist jetzt auf Deutsch und lässt sich auf Deutsch bearbeiten
+- Die festen Schutzregeln für Raum und Möbel im Hintergrund bleiben englisch, weil Bildmodelle Englisch am zuverlässigsten umsetzen
+
 ## 1.6.1
 - "Ideen neu erzeugen" zeigt sofort Rückmeldung: Knopf gesperrt mit Ladeanzeige und Sekundenzähler direkt im Ideen-Bereich (vorher war am Hinweis-Knopf nichts zu sehen)
 - Eigenes Möbelstück entfernen geht sofort, ohne Rückfrage

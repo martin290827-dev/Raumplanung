@@ -212,7 +212,7 @@ async function callClaude(photo, userText, system = IDEAS_SYSTEM) {
 }
 
 const PROMPT_SYSTEM = `You write instructions for an AI image-editing model (it receives the photo plus your text). Look at the photo carefully.
-Write ONE prompt in English, 90 to 170 words, plain text only, no lists, no quotes, no preamble.
+Write ONE prompt in GERMAN (the owner reads and edits it), 90 to 170 words, plain text only, no lists, no quotes, no preamble. Use simple, concrete German with clear positions (linke Wand, rechts neben dem Fenster, im Vordergrund).
 Structure: (1) what must stay exactly as in the photo: walls, corners, windows, doors, radiators, floor, ceiling, camera angle and framing; (2) the concrete changes, each with position (left wall, right of the window, foreground, next to the door), approximate size, material and color; (3) light and mood.
 Rules: follow the owner's wishes literally and make them clearly visible. Use only the furniture pieces you are given plus small decor. Never invent room dimensions. If told to keep existing furniture, name the visible pieces and say they stay in place. No text, labels or watermarks in the image.`;
 

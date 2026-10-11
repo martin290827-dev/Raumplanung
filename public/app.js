@@ -294,7 +294,7 @@ function renderProject() {
     <div id="furn" style="margin-top:14px"></div>
     <div id="own" class="own"></div>
     <div class="row" style="margin-top:6px"><button class="btn" id="suggest" type="button">Bildanweisung von Claude schreiben lassen</button></div>
-    <label class="f" id="pbox" style="margin-top:10px" ${ui.customPrompt ? '' : 'hidden'}>Anweisung an das Bildmodell (englisch, bearbeitbar)
+    <label class="f" id="pbox" style="margin-top:10px" ${ui.customPrompt ? '' : 'hidden'}>Anweisung an das Bildmodell (deutsch, bearbeitbar)
       <textarea id="cprompt" class="mono" rows="7">${esc(ui.customPrompt)}</textarea>
       <span class="hint" style="font-weight:400">Ist dieses Feld gefüllt, wird es statt der automatischen Anweisung verwendet. Leer lassen für automatisch.</span>
     </label>
