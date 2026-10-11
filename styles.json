@@ -1,0 +1,12 @@
+[
+  {"id":"skandinavisch","name":"Skandinavisch","farben":["#F2EFEA","#C9D3D6","#B98B54"],"prompt":"Scandinavian interior: light oak wood, white and soft grey walls, wool and linen textiles, simple furniture with slim legs, lots of natural light, a few green plants"},
+  {"id":"japandi","name":"Japandi","farben":["#E7E0D4","#6F6A5C","#2B2A27"],"prompt":"Japandi interior: low furniture, warm natural wood, matte beige and charcoal accents, paper lamps, ceramics, calm uncluttered layout"},
+  {"id":"industrial","name":"Industrial","farben":["#3A3D40","#8A5A3C","#C9C5BD"],"prompt":"Industrial loft interior: raw concrete and brick, black steel frames, worn leather, exposed bulbs, reclaimed wood"},
+  {"id":"minimalistisch","name":"Modern minimalistisch","farben":["#F5F5F3","#D8D8D4","#222222"],"prompt":"Modern minimalist interior: clean lines, few pieces, monochrome palette, hidden storage, indirect lighting"},
+  {"id":"midcentury","name":"Mid-Century","farben":["#C27A2C","#2F5D50","#EBDDC3"],"prompt":"Mid-century modern interior: teak furniture, tapered legs, olive green and mustard accents, sculptural lamps, geometric rug"},
+  {"id":"boho","name":"Boho","farben":["#C46A4B","#E8D8BC","#4F6B4A"],"prompt":"Bohemian interior: layered rugs and textiles, rattan and macramé, many plants, warm earthy colors, relaxed eclectic mix"},
+  {"id":"alpin","name":"Alpin / Landhaus","farben":["#7A5232","#E9E1D3","#3F5B45"],"prompt":"Modern alpine country house interior: solid wood paneling, tiled stove feel, wool throws, checked textiles, warm light, comfortable upholstered seating"},
+  {"id":"mediterran","name":"Mediterran","farben":["#F0E6D2","#3F7CA8","#C8693C"],"prompt":"Mediterranean interior: white lime-plaster walls, terracotta tiles, deep blue accents, wrought iron, arches, rustic wood"},
+  {"id":"artdeco","name":"Art déco","farben":["#12343B","#C9A24B","#F1E9D8"],"prompt":"Art deco interior: deep teal and emerald, brass details, geometric patterns, velvet upholstery, statement mirror and lighting"},
+  {"id":"warm-modern","name":"Warm modern","farben":["#D9C3A5","#8C6B4F","#3C3A36"],"prompt":"Warm contemporary interior: curved sofas, boucle fabric, travertine, walnut wood, soft layered lighting, earthy neutral palette"}
+]

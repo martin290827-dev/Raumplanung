@@ -1,0 +1,5 @@
+# Geheimnisse und persönliche Daten bleiben lokal
+.env
+data/
+node_modules/
+.DS_Store
