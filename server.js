@@ -32,6 +32,7 @@ const cfg = {
   claudeBase: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
   atlasBase: process.env.ATLAS_BASE_URL || 'https://api.atlascloud.ai/api/v1/model',
 };
+let VERSION = '0.0.0'; try { VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version; } catch { /* egal */ }
 const STYLES = JSON.parse(fs.readFileSync(path.join(ROOT, 'styles.json'), 'utf8'));
 const MODELS = JSON.parse(fs.readFileSync(path.join(ROOT, 'models.json'), 'utf8'));
 const ROOMS = ['Wohnzimmer', 'Schlafzimmer', 'Küche', 'Esszimmer', 'Arbeitszimmer', 'Bad', 'Kinderzimmer', 'Flur', 'Balkon / Terrasse', 'Garten', 'Anderer Platz'];
@@ -225,6 +226,59 @@ async function downloadTo(url, dir, base) {
   return file;
 }
 
+// ---------- Einstellungen (.env) ----------
+const ENV_FILE = path.join(ROOT, '.env');
+function upsertEnv(updates) {
+  let lines = [];
+  try { lines = fs.readFileSync(ENV_FILE, 'utf8').split(/\r?\n/); }
+  catch { try { lines = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8').split(/\r?\n/); } catch { /* leer */ } }
+  const seen = new Set();
+  lines = lines.map((l) => {
+    const m = l.match(/^\s*([A-Z0-9_]+)\s*=/);
+    if (m && Object.prototype.hasOwnProperty.call(updates, m[1])) { seen.add(m[1]); return `${m[1]}=${updates[m[1]]}`; }
+    return l;
+  });
+  for (const k of Object.keys(updates)) if (!seen.has(k)) lines.push(`${k}=${updates[k]}`);
+  const tmp = ENV_FILE + '.tmp';
+  fs.writeFileSync(tmp, lines.join('\n').replace(/\n*$/, '\n'), { mode: 0o600 });
+  fs.renameSync(tmp, ENV_FILE);
+}
+const keyHint = (k) => (k ? '…' + k.slice(-4) : '');
+function settingsView() {
+  return {
+    claude: { set: !!cfg.claudeKey, hint: keyHint(cfg.claudeKey) },
+    atlas: { set: !!cfg.atlasKey, hint: keyHint(cfg.atlasKey) },
+    claudeModel: cfg.claudeModel, dailyLimit: cfg.dailyLimit, version: VERSION,
+  };
+}
+function saveSettings(b) {
+  const up = {}, next = {};
+  const keyOk = (v) => /^[A-Za-z0-9._\-+/=]{10,400}$/.test(v);
+  const takeKey = (clear, val, envName, cfgName, label) => {
+    if (clear) { up[envName] = ''; next[cfgName] = ''; return; }
+    if (typeof val === 'string' && val.trim()) {
+      const v = val.trim();
+      if (!keyOk(v)) throw httpErr(400, `Der ${label}-Schlüssel hat ein ungültiges Format. Bitte ohne Leerzeichen und Anführungszeichen einfügen.`);
+      up[envName] = v; next[cfgName] = v;
+    }
+  };
+  takeKey(b.clearAnthropic, b.anthropicKey, 'ANTHROPIC_API_KEY', 'claudeKey', 'Claude');
+  takeKey(b.clearAtlas, b.atlasKey, 'ATLASCLOUD_API_KEY', 'atlasKey', 'Atlas-Cloud');
+  if (b.dailyLimit !== undefined && b.dailyLimit !== '') {
+    const n = Number(String(b.dailyLimit).replace(',', '.'));
+    if (!(n >= 0 && n <= 1000)) throw httpErr(400, 'Das Tageslimit muss eine Zahl zwischen 0 und 1000 sein.');
+    up.DAILY_LIMIT_USD = String(n); next.dailyLimit = n;
+  }
+  if (typeof b.claudeModel === 'string' && b.claudeModel.trim()) {
+    const v = b.claudeModel.trim();
+    if (!/^[A-Za-z0-9._:-]{3,80}$/.test(v)) throw httpErr(400, 'Der Modellname enthält ungültige Zeichen.');
+    up.CLAUDE_MODEL = v; next.claudeModel = v;
+  }
+  if (!Object.keys(up).length) throw httpErr(400, 'Es gibt nichts zu speichern.');
+  try { upsertEnv(up); } catch (e) { throw httpErr(500, 'Die Datei .env konnte nicht geschrieben werden: ' + e.message); }
+  Object.assign(cfg, next);
+}
+
 // ---------- Routen ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 function serveFile(res, file) {
@@ -252,8 +306,11 @@ async function handle(req, res) {
       models: MODELS.map((m) => ({ id: m.id, name: m.name, preis: m.preis })),
       budget: { used: u.usd, limit: cfg.dailyLimit },
       claude: { ok: !!cfg.claudeKey, model: cfg.claudeModel }, atlas: { ok: !!cfg.atlasKey },
+      version: VERSION,
     });
   }
+  if (p === '/api/settings' && req.method === 'GET') return sendJson(res, 200, settingsView());
+  if (p === '/api/settings' && req.method === 'PUT') { saveSettings(await readJson(req, 64 * 1024)); return sendJson(res, 200, settingsView()); }
   if (req.method === 'GET' && p === '/api/projects') return sendJson(res, 200, listProjects());
   if (req.method === 'POST' && p === '/api/convert') {
     const buf = await readBuffer(req);

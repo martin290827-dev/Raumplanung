@@ -8,8 +8,10 @@ Lokale App für den Eigengebrauch. Foto eines Raums oder Platzes hochladen, kurz
 ## Start
 
 1. Node.js 20 oder neuer installieren (`node -v` prüfen).
-2. `.env.example` nach `.env` kopieren und beide API-Schlüssel eintragen.
-3. Doppelklick auf `start.command` oder im Terminal `node server.js`. Dann `http://localhost:3000` öffnen.
+2. Doppelklick auf `start.command` (oder im Terminal `node server.js`). Dann `http://localhost:3000` öffnen.
+3. In der App links auf **Einstellungen** klicken und beide API-Schlüssel eintragen. Sie werden in `.env` gespeichert.
+
+Alternativ kannst du `.env.example` nach `.env` kopieren und von Hand ausfüllen.
 
 ## Fotoformate
 
@@ -25,6 +27,10 @@ JPEG, PNG, WebP, GIF, AVIF und BMP liest der Browser selbst. HEIC (iPhone), TIFF
 ## Kosten
 
 Ein Tageslimit schützt vor Überraschungen (`DAILY_LIMIT_USD`, Standard 2). Es rechnet mit Listenpreisen aus `models.json` und einer Schätzung für Claude. Die echte Abrechnung steht bei Anthropic und Atlas Cloud.
+
+## Versionen
+
+Siehe `CHANGELOG.md`. Alles bleibt vorerst in Version 1, Erweiterungen kommen in kleinen Schritten (1.1, 1.2 ...).
 
 ## Anpassen
 

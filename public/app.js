@@ -47,6 +47,7 @@ async function readPhoto(file) {
   let r;
   try { r = await fetch('/api/convert?ext=' + encodeURIComponent(ext), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file }); }
   catch { throw new Error('Der lokale Server ist nicht erreichbar.'); }
+  if (r.status === 404) throw new Error('Der Server läuft noch in einer älteren Version. Im Terminal Strg+C drücken, start.command neu starten und die Seite neu laden.');
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Das Bild konnte nicht gelesen werden.'); }
   try { return await decodeImage(await r.blob()); }
   catch { throw new Error('Das Bild konnte nicht gelesen werden. Bitte als JPEG oder PNG exportieren.'); }
@@ -66,9 +67,11 @@ function renderRail() {
 function renderStatus() {
   if (!cfg) return;
   const b = cfg.budget; const rest = Math.max(0, b.limit - b.used);
-  const miss = [!cfg.claude.ok && 'ANTHROPIC_API_KEY', !cfg.atlas.ok && 'ATLASCLOUD_API_KEY'].filter(Boolean);
+  const miss = [!cfg.claude.ok && 'Claude-Schlüssel', !cfg.atlas.ok && 'Atlas-Cloud-Schlüssel'].filter(Boolean);
   $('#status').innerHTML = `Heute ${usd(b.used)} von ${usd(b.limit)}<br>Rest ${usd(rest)}` +
-    (miss.length ? `<br><span class="warn">In .env fehlt: ${miss.join(', ')}</span>` : '');
+    (miss.length ? `<br><span class="warn">Es fehlt: ${miss.map((m) => esc(m)).join(', ')}. <a href="#" id="toSettings">Einstellungen öffnen</a></span>` : '') +
+    `<br>Version ${esc(cfg.version || '')}`;
+  const a = $('#toSettings'); if (a) a.addEventListener('click', (e) => { e.preventDefault(); showSettings(); });
 }
 async function refreshConfig() { cfg = await api('GET', '/api/config'); renderStatus(); }
 async function refreshProjects() { projects = await api('GET', '/api/projects'); renderRail(); }
@@ -265,8 +268,55 @@ function ideasHTML(r) {
   ${r.hinweis ? `<p class="hint">${esc(r.hinweis)}</p>` : ''}`;
 }
 
+/* ---------- Einstellungen ---------- */
+async function showSettings() {
+  cur = null; shown = null; renderRail();
+  let st;
+  try { st = await api('GET', '/api/settings'); } catch (e) { return toast(e.message, true); }
+  const keyBlock = (id, title, info, s, ph) => `
+    <section class="panel">
+      <h3>${title}</h3>
+      <p class="hint" style="margin:0 0 10px">${info}</p>
+      <label class="f">API-Schlüssel
+        <input type="password" id="${id}" autocomplete="off" spellcheck="false" placeholder="${s.set ? 'Gespeichert (' + esc(s.hint) + '). Zum Ersetzen neuen Schlüssel einfügen.' : esc(ph)}">
+      </label>
+      ${s.set ? `<button class="btn small danger" type="button" data-clear="${id}" style="margin-top:8px">Gespeicherten Schlüssel entfernen</button>` : '<p class="err" style="margin-top:8px">Noch kein Schlüssel gespeichert.</p>'}
+    </section>`;
+  $('#main').innerHTML = `
+  <section class="settings">
+    <h2>Einstellungen</h2>
+    <p class="hint">Die Werte werden in der Datei <b>.env</b> im Programmordner auf diesem Rechner gespeichert. Gespeicherte Schlüssel zeigt die App nie wieder an. Änderungen gelten sofort, ein Neustart ist nicht nötig.</p>
+    ${keyBlock('kA', 'Claude (Anthropic)', 'Für die Ideen zu Raum und Möbeln. Schlüssel aus der Anthropic Console.', st.claude, 'sk-ant-…')}
+    <section class="panel">
+      <h3>Claude-Modell</h3>
+      <label class="f">Modellname<input id="kModel" value="${esc(st.claudeModel)}" spellcheck="false"></label>
+    </section>
+    ${keyBlock('kB', 'Atlas Cloud', 'Für die KI-Redesigns. Schlüssel aus der Atlas-Cloud-Konsole.', st.atlas, 'Atlas-Cloud-Schlüssel')}
+    <section class="panel">
+      <h3>Kostenlimit</h3>
+      <label class="f">Tageslimit in USD<input id="kLimit" inputmode="decimal" value="${esc(String(st.dailyLimit))}"></label>
+      <p class="hint">Die App stoppt, wenn die geschätzten Kosten des Tages dieses Limit erreichen.</p>
+    </section>
+    <div class="row" style="margin-top:18px"><button class="btn primary" id="sSave" type="button">Speichern</button><span id="sMsg" class="hint"></span></div>
+    <p class="hint">Version ${esc(st.version)}</p>
+  </section>`;
+  const save = async (extra) => {
+    const body = { claudeModel: $('#kModel').value, dailyLimit: $('#kLimit').value, ...extra };
+    if ($('#kA').value) body.anthropicKey = $('#kA').value;
+    if ($('#kB').value) body.atlasKey = $('#kB').value;
+    const btn = $('#sSave'); btn.disabled = true; btn.classList.add('busy'); $('#sMsg').textContent = ''; $('#sMsg').className = 'hint';
+    try { await api('PUT', '/api/settings', body); await refreshConfig(); toast('Gespeichert in .env'); showSettings(); }
+    catch (e) { $('#sMsg').textContent = e.message; $('#sMsg').className = 'err'; btn.disabled = false; btn.classList.remove('busy'); }
+  };
+  $('#sSave').addEventListener('click', () => save({}));
+  document.querySelectorAll('[data-clear]').forEach((b) => b.addEventListener('click', () => {
+    if (confirm('Gespeicherten Schlüssel aus der .env entfernen?')) save(b.dataset.clear === 'kA' ? { clearAnthropic: true } : { clearAtlas: true });
+  }));
+}
+
 /* ---------- Start ---------- */
 $('#newBtn').addEventListener('click', showNew);
+$('#setBtn').addEventListener('click', showSettings);
 (async () => {
   try {
     await refreshConfig(); await refreshProjects();
