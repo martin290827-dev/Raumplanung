@@ -11,6 +11,10 @@ Lokale App für den Eigengebrauch. Foto eines Raums oder Platzes hochladen, kurz
 2. `.env.example` nach `.env` kopieren und beide API-Schlüssel eintragen.
 3. Doppelklick auf `start.command` oder im Terminal `node server.js`. Dann `http://localhost:3000` öffnen.
 
+## Fotoformate
+
+JPEG, PNG, WebP, GIF, AVIF und BMP liest der Browser selbst. HEIC (iPhone), TIFF und andere Formate wandelt der lokale Server mit `sips` um, das in macOS eingebaut ist. Alles bleibt auf dem Rechner.
+
 ## Datenschutz
 
 - Der Server lauscht nur auf `127.0.0.1`.

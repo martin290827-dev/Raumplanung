@@ -25,9 +25,10 @@ function toast(msg, bad) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ''; }, bad ? 7000 : 3000);
 }
 
-function readPhoto(file) {
+// Bild in ein Canvas laden, auf max. 2048 px verkleinern, als JPEG ausgeben.
+function decodeImage(blob) {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file); const img = new Image();
+    const url = URL.createObjectURL(blob); const img = new Image();
     img.onload = () => {
       const s = Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight));
       const w = Math.round(img.naturalWidth * s), h = Math.round(img.naturalHeight * s);
@@ -35,9 +36,20 @@ function readPhoto(file) {
       c.getContext('2d').drawImage(img, 0, 0, w, h); URL.revokeObjectURL(url);
       resolve({ dataUrl: c.toDataURL('image/jpeg', 0.9), width: w, height: h });
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Das Bild konnte nicht gelesen werden. Bei HEIC-Fotos bitte als JPEG exportieren.')); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
     img.src = url;
   });
+}
+// Erst der Browser (JPEG, PNG, WebP, GIF, AVIF, BMP). Sonst wandelt der lokale Server um (HEIC, TIFF und mehr).
+async function readPhoto(file) {
+  try { return await decodeImage(file); } catch { /* weiter mit Server-Umwandlung */ }
+  const ext = (file.name.match(/\.([A-Za-z0-9]{2,5})$/) || [])[1] || 'img';
+  let r;
+  try { r = await fetch('/api/convert?ext=' + encodeURIComponent(ext), { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file }); }
+  catch { throw new Error('Der lokale Server ist nicht erreichbar.'); }
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Das Bild konnte nicht gelesen werden.'); }
+  try { return await decodeImage(await r.blob()); }
+  catch { throw new Error('Das Bild konnte nicht gelesen werden. Bitte als JPEG oder PNG exportieren.'); }
 }
 
 /* ---------- Seitenleiste ---------- */
@@ -68,8 +80,8 @@ function showNew() {
   <section class="new">
     <h2>Neues Projekt</h2>
     <label class="drop" id="drop" tabindex="0">
-      <input type="file" accept="image/*" hidden id="file">
-      <span id="dropText">Foto des Raums oder Platzes hierher ziehen, einfügen (Cmd+V) oder klicken</span>
+      <input type="file" accept="image/*,.heic,.heif,.tif,.tiff,.avif,.bmp" hidden id="file">
+      <span id="dropText">Foto des Raums oder Platzes hierher ziehen, einfügen (Cmd+V) oder klicken<br><small>JPEG, PNG, HEIC (iPhone), WebP, TIFF und mehr</small></span>
     </label>
     <div class="fields">
       <label class="f">Titel<input id="title" maxlength="80" placeholder="z. B. Wohnzimmer Graz"></label>

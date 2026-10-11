@@ -5,6 +5,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
+const { execFile } = require('child_process');
 
 const ROOT = __dirname;
 const PUB = path.join(ROOT, 'public');
@@ -50,6 +52,34 @@ function readJson(req, limit = 30 * 1024 * 1024) {
     req.on('error', reject);
   });
 }
+// Rohdaten lesen (für Bild-Umwandlung)
+function readBuffer(req, limit = 60 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0;
+    req.on('data', (c) => { size += c.length; if (size > limit) { reject(httpErr(413, 'Datei zu groß (max. 60 MB).')); req.destroy(); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+const run = (cmd, args) => new Promise((resolve, reject) => execFile(cmd, args, { timeout: 60000 }, (err) => (err ? reject(err) : resolve())));
+// Wandelt HEIC, TIFF und andere Formate in JPEG um (max. 2048 px). macOS: sips (eingebaut). Sonst ImageMagick, falls vorhanden.
+async function convertToJpeg(buf, ext) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'raumplanung-'));
+  const inp = path.join(dir, 'in.' + ext), out = path.join(dir, 'out.jpg');
+  fs.writeFileSync(inp, buf);
+  const attempts = [
+    ['sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '90', '-Z', '2048', inp, '--out', out]],
+    ['magick', [inp + '[0]', '-auto-orient', '-resize', '2048x2048>', '-quality', '90', out]],
+    ['convert', [inp + '[0]', '-auto-orient', '-resize', '2048x2048>', '-quality', '90', out]],
+  ];
+  try {
+    for (const [cmd, args] of attempts) {
+      try { await run(cmd, args); if (fs.existsSync(out) && fs.statSync(out).size > 0) return fs.readFileSync(out); } catch { /* nächster Versuch */ }
+    }
+    throw httpErr(415, 'Dieses Bildformat kann nicht umgewandelt werden. Bitte als JPEG oder PNG exportieren.');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 const today = () => new Date().toLocaleDateString('sv-SE'); // lokales Datum, YYYY-MM-DD
 
 // ---------- Tageslimit ----------
@@ -208,7 +238,12 @@ function serveFile(res, file) {
 async function handle(req, res) {
   const host = (req.headers.host || '').split(':')[0];
   if (!['localhost', '127.0.0.1'].includes(host)) throw httpErr(403, 'Nur lokal erreichbar.');
-  const p = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  if (req.method !== 'GET' && req.headers.origin) {
+    let oh = ''; try { oh = new URL(req.headers.origin).hostname; } catch { /* ungültig */ }
+    if (!['localhost', '127.0.0.1'].includes(oh)) throw httpErr(403, 'Fremde Herkunft nicht erlaubt.');
+  }
+  const u = new URL(req.url, 'http://localhost');
+  const p = decodeURIComponent(u.pathname);
 
   if (req.method === 'GET' && p === '/api/config') {
     const u = readUsage();
@@ -220,6 +255,14 @@ async function handle(req, res) {
     });
   }
   if (req.method === 'GET' && p === '/api/projects') return sendJson(res, 200, listProjects());
+  if (req.method === 'POST' && p === '/api/convert') {
+    const buf = await readBuffer(req);
+    if (!buf.length) throw httpErr(400, 'Keine Datei empfangen.');
+    const raw = (u.searchParams.get('ext') || '').toLowerCase();
+    const jpg = await convertToJpeg(buf, /^[a-z0-9]{2,5}$/.test(raw) ? raw : 'img');
+    res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
+    return res.end(jpg);
+  }
   if (req.method === 'POST' && p === '/api/projects') {
     const b = await readJson(req);
     const photo = parseDataUrl(b.photo);
