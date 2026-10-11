@@ -356,7 +356,13 @@ function renderProject() {
     box.querySelectorAll('input').forEach((inp) => inp.addEventListener('change', () => { if (inp.checked) ui.furn.add(+inp.dataset.i); else ui.furn.delete(+inp.dataset.i); syncPrompt(); }));
   };
   $('#concept').addEventListener('change', (e) => { ui.concept = e.target.value; furnReset(); renderFurn(); syncPrompt(); });
-  $('#keep').addEventListener('change', (e) => { ui.keep = e.target.checked; syncPrompt(); });
+  $('#keep').addEventListener('change', async (e) => {
+    const on = e.target.checked; ui.keep = on; syncPrompt();
+    try {
+      const m = await api('PATCH', '/api/projects/' + cur.id, { keep: on });
+      cur.keep = m.keep !== false; cur.briefUpdatedAt = m.briefUpdatedAt; renderBrief(false);
+    } catch (er) { ui.keep = !on; e.target.checked = !on; syncPrompt(); toast(er.message, true); }
+  });
   $('#prompt').addEventListener('input', (e) => { ui.prompt = e.target.value; ui.edited = true; promptHint(); });
   $('#prompt').addEventListener('blur', () => { if (!ui.prompt.trim()) { ui.edited = false; syncPrompt(); } });
   $('#pReset').addEventListener('click', () => { ui.edited = false; syncPrompt(); });

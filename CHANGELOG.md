@@ -3,6 +3,9 @@
 Alles bleibt vorerst in Version 1. Kleine Schritte: 1.0.x für Korrekturen, 1.1, 1.2 und so weiter für neue Funktionen.
 Jeder Stand bekommt einen Git-Tag (`v1.0.0`, `v1.1.0` ...).
 
+## 1.8.2
+- Fehler behoben: Der Schalter "Vorhandene Möbel und Raumaufteilung beibehalten" im Redesign-Bereich sprang nach Projektwechsel, Neuladen oder Bildwechsel wieder auf "an". Er wird jetzt im Projekt gespeichert und ist derselbe wie unter "Deine Angaben" und im Formular "Neues Projekt"
+
 ## 1.8.1
 - Fehler "Claude hat kein gültiges JSON geliefert" behoben: Die App repariert kleine Formatfehler der Antwort selbst (Codeblock, überzählige Kommas)
 - Ist die Antwort trotzdem unbrauchbar oder abgeschnitten, wiederholt die App die Anfrage einmal automatisch mit mehr Spielraum. Das kostet nur dann zusätzlich etwa 0,05 USD
